@@ -24,13 +24,30 @@ originals straight from the ROM, sharing no code with the injector.
 Copyright (C) 2026 sc64-maps contributors
 SPDX-License-Identifier: GPL-3.0-or-later
 """
-import os, sys, struct, glob
-sys.path.insert(0, r"I:\projects\sc64-maps")
-from extract_sc64_maps import load_rom, BoltArchive, looks_like_chk, parse_map, chk_sections
+import argparse
+import glob
+import os
+import struct
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from extract_sc64_maps import (load_rom, BoltArchive, looks_like_chk,
+                               parse_map, chk_sections)
 from verify_maps import MpqReader
 
 UNIT_NAME_OFFSET = 3192          # verified against a stock Blizzard UMS map
-OUT = sys.argv[1] if len(sys.argv) > 1 else r"I:\projects\sc64-maps\gamedata\maps"
+
+parser = argparse.ArgumentParser(
+    description="Check that briefing injection did not overwrite a string "
+                "some other CHK section still references.")
+parser.add_argument("maps", nargs="?",
+                    default=os.path.join(HERE, "gamedata", "maps"),
+                    help="directory of generated .scm/.scx files")
+parser.add_argument("--rom", help="ROM to compare against "
+                                  "(auto-detected if omitted)")
+_args = parser.parse_args()
+OUT = _args.maps
 
 
 def secmap(chk):
@@ -69,7 +86,14 @@ def strings(chk):
 
 
 # originals straight from the ROM
-arc = BoltArchive(load_rom(r"I:\projects\sc64-maps\gamedata\roms\StarCraft 64 (USA).n64"))
+rom_path = _args.rom
+if not rom_path:
+    from sc64 import find_rom
+    rom_path = find_rom(None)
+if not rom_path:
+    print("error: no ROM found; pass --rom PATH", file=sys.stderr)
+    sys.exit(2)
+arc = BoltArchive(load_rom(rom_path))
 orig = {}
 for e in arc.entries():
     if not e.path.startswith("008/"):

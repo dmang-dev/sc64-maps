@@ -265,10 +265,20 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description="Compare StarCraft 64 scenarios with the stock PC maps.")
     parser.add_argument("rom", help="StarCraft 64 ROM")
-    parser.add_argument("--stock", default=r"I:\Blizzard\StarCraft",
-                        help="StarCraft install directory")
+    parser.add_argument("--stock", default=None,
+                        help="StarCraft install directory (auto-detected if omitted)")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
+
+    if args.stock is None:
+        from starcraft_install import find_install
+        install = find_install()
+        if not install:
+            print("error: no StarCraft install found; pass --stock DIR "
+                  "or set STARCRAFT_DIR", file=sys.stderr)
+            return 1
+        args.stock = install.root
+        print(f"using StarCraft install: {args.stock}")
 
     if not os.path.isdir(os.path.join(args.stock, "Maps")):
         print(f"error: no Maps folder under {args.stock!r}", file=sys.stderr)

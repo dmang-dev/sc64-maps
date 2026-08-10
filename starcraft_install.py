@@ -44,7 +44,7 @@ SEARCH_PATHS = (
     r"C:\StarCraft",
     r"C:\Program Files (x86)\Blizzard\StarCraft",
     r"C:\Program Files\Blizzard\StarCraft",
-    r"I:\Blizzard\StarCraft",
+    r"C:\Blizzard\StarCraft",
     os.path.expanduser("~/StarCraft"),
     "/Applications/StarCraft",
 )
