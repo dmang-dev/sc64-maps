@@ -10,8 +10,11 @@
 *.scm
 *.scx
 *.chk
+*.script
+briefings.json
 
 maps/
+briefings/
 bolt-out/
 out/
 

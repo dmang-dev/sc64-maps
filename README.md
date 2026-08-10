@@ -61,6 +61,13 @@ python verify_maps.py maps/
 
 Then copy the results into your StarCraft `Maps\` folder.
 
+Extract the mission briefings, which are stored separately from the maps and so
+do not travel with them:
+
+```bash
+python extract_briefings.py "StarCraft 64 (USA).n64" -o briefings/
+```
+
 Useful flags: `--chk` also writes the raw scenario chunks, `--dump-all DIR`
 dumps all 2111 files in the BOLT archive, `-v` reports per-entry errors.
 
@@ -74,6 +81,14 @@ release is byte-swapped `v64` data despite its name, which the tool handles.
 melee maps, both tutorials, and the N64-exclusive content that was never
 released for PC — *Resurrection IV*, plus the exclusive missions *Guardians*,
 *Rage*, *Zerg Troopers*, and a handful of others.
+
+Plus 96 mission briefings, one per scenario, holding 576 transmissions between
+them. On PC these live inside the map as `MBRF` triggers, but the N64 build
+keeps them as separate plain-text scripts, so they are a second extraction
+rather than something that rides along with the maps. Each briefing is rendered
+as readable text — objectives, then each transmission with its speaker and
+portrait id — and `--raw` / `--json` give you the original script bytes or the
+parsed structure instead.
 
 Each is written as `.scm` or `.scx` based on the scenario's own version stamp:
 `VER` 205 / `TYPE` `RAWB` means Brood War (`.scx`), anything lower is StarCraft
@@ -134,8 +149,9 @@ the length its BOLT header declares.
 
 ```
 extract_sc64_maps.py        the tool: ROM -> playable maps
+extract_briefings.py        ROM -> mission briefings as readable text
 verify_maps.py              StormLib-faithful validator for the output
-docs/FORMAT.md              BOLT, CHK and MPQ notes
+docs/FORMAT.md              BOLT, CHK, MPQ and briefing-script notes
 reference/
   README.md                 provenance and licensing
   BOLTextract-cpp/          heinermann's original C++ extractor (GPL-3.0)

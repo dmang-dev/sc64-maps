@@ -172,3 +172,82 @@ Two caveats worth knowing:
 - Readers that compute sector counts as `size // sector_size + 1` (mpyq again)
   miscount files whose size is an exact multiple of the sector size. StormLib
   uses `((size - 1) / sector_size) + 1`, which this project matches.
+
+## 5. Mission briefings (BOLT directory 007)
+
+PC StarCraft stores campaign briefings inside the map, as triggers in the CHK's
+`MBRF` section. The N64 build does not: briefings are plain-text scripts in
+their own BOLT directory, completely separate from the scenarios. That is why
+they do not travel with the maps and need `extract_briefings.py`.
+
+Directory 007 holds **119** entries, not 96. Exactly 96 of them are briefing
+scripts (`file_type` 10, first byte `<`); the other 23 are unrelated binary
+files (`file_type` 18). Filtering on directory alone will mix them together.
+
+Briefing `007/i` belongs to map `008/(i+8)`. Both runs are 96 long, contiguous
+and in the same order — `007/000` ↔ `008/008` (*Tutorial 1*) through `007/05F`
+↔ `008/067` (*Mass Hysteria*). The offset is just where each run starts in its
+directory; `008/000`–`008/007` are non-map entries.
+
+### 5.1 Syntax
+
+The 96 scripts are **pure printable ASCII with CRLF line endings**. Across the
+whole corpus there is not one byte outside `0x20`–`0x7E` plus CR/LF, and not a
+single bare CR or bare LF. Markup is a bare tag, normally alone on its line:
+
+| Tag | Meaning |
+|---|---|
+| `<OBJECTIVE>` | mission objectives; exactly one per file, always first |
+| `<PORTn>` | select portrait *n* for the transmissions that follow |
+| `<TEXT>` | a transmission: speaker line, blank line, then body |
+| `<TEXTC>` | closing screen text; same internal shape |
+
+A `<TEXT>` block's chunk begins with the newline that ended the tag's own line.
+Dropping exactly that one newline, the block is:
+
+```
+speaker
+                     <- blank
+body ...
+```
+
+Dropping *all* leading blanks instead is a mistake: a transmission with no
+speaker is written with an **empty** speaker line, and collapsing blanks makes
+that indistinguishable from one that has a speaker.
+
+Portrait ids observed: 0, 1, 2, 3, 4, 6, 7, 8, 9, 12–22. There is no `PORT5`,
+`PORT10` or `PORT11`. What each id depicts is not recorded in the scripts.
+
+### 5.2 Edge cases
+
+Only two files deviate, and both matter:
+
+- **007/033** contains a `<PORT8>` whose `<TEXT>` tag was never written. The
+  block that follows still has the usual speaker/blank/body shape, so a parser
+  that ignores text under a `<PORTn>` silently drops a transmission — 575
+  instead of 576. Treat it as an implicit `<TEXT>`.
+- **007/033** also contains a bare `<PORT>` with no digits, followed by a
+  transmission whose speaker line is empty. Reads as "nobody in particular".
+- **007/017** has a `<PORT0>` immediately followed by `<PORT14>` with nothing
+  between (the last one before a `<TEXT>` wins), and is the one file where a
+  tag is *not* alone on its line — a `<PORT0>` sits at the end of a prose line.
+  1084 of the 1085 tags in the corpus are alone; scan for tags anywhere rather
+  than matching whole lines.
+
+### 5.3 Related script directories
+
+Two other directories hold scripts in the same family. Neither is a mission
+briefing, and they use different markup, so they are not extracted by default.
+
+- **Directory 003** (61 files) — "establishing shot" / glue screens, using
+  *double*-angle markup with arguments: `</COMMENT text>`, `</BACKGROUND
+  glue\palta\TerranA.pcx>`, `</FONTCOLOR glue\palta\tfont.pcx>`,
+  `</DISPLAYTIME 5000>`, `</FADESPEED 100>`, `</PAGE>`, `</SCREENLEFT>`,
+  `</SCREENLOWERLEFT>`. The asset paths use PC StarCraft's own naming.
+- **Directory 004** (13 files) — slideshow scripts with single-angle markup:
+  `<WAIT n>`, `<TEXT1>`, `<TEXT2>`, `<TEXTFADEDOWN>`, `<TEXTSPEED n>`,
+  `<SLIDEFADEUP n>`, `<SLIDEFADEDOWN>`, `<SLIDESPEED n>`, `<BORDFADEUP n>`,
+  `<BORDFADEDOWN>`.
+
+Neither count (61, 13) matches the 96 missions, so they sit on a different axis
+from the briefing/map pairing.
