@@ -151,7 +151,22 @@ Verified two ways:
   demonstrate the last-sector case — stock and patched mpyq extract all 52
   contained files byte-identically.
 
-Worth upstreaming: this affects any MPQ holding a multi-sector file with
-incompressible content, not just these maps. Note that upstream has been
-quiet for a while (the newest merged PR is from 2020, and #36/#37 are still
-open), so a fork may be the practical route.
+### Upstreamed
+
+Submitted as [eagleflo/mpyq#39](https://github.com/eagleflo/mpyq/pull/39), from
+the fork at [dmang-dev/mpyq](https://github.com/dmang-dev/mpyq) (branch
+`fix-multi-sector-uncompressed`). The PR carries the fix plus a test that builds
+small archives at runtime rather than adding another binary fixture, so the
+layouts under test are visible in the diff: verbatim, deflated and mixed
+multi-sector files, an exact multiple of the sector size, a single short sector,
+and an empty file. It also asserts the incompressible fixture really did end up
+stored verbatim, so the test cannot quietly stop exercising the path it targets.
+
+Upstream has been quiet for a while (newest merged PR is from 2020; #35, #36 and
+#37 are still open), so the fork may end up being the practical route. Their CI
+is configured `on: [push]` rather than `on: [pull_request]`, so no checks run on
+PRs from forks — the suite was run locally instead (8 passed, and the two
+targeted tests fail without the fix with `Unsupported compression type: 229`).
+
+This affects any MPQ holding a multi-sector file with incompressible content,
+not just these maps.
