@@ -456,5 +456,188 @@ closing `>`, so strip a leading CRLF only if one is present.
   `<SLIDEFADEUP n>`, `<SLIDEFADEDOWN>`, `<SLIDESPEED n>`, `<BORDFADEUP n>`,
   `<BORDFADEDOWN>`.
 
-Neither count (61, 13) matches the 96 missions, so they sit on a different axis
-from the briefing/map pairing.
+Directory 003 in fact pairs 1:1 with the campaign at the **same offset the
+briefings use**: `003/i ↔ 007/i ↔ 008/(i+8)` for i = 0x00–0x3B, covering exactly
+the 60 campaign maps, with `003/03C` the credits pairing with nothing. So
+61 = 60 missions + credits. Directory 004's 13 slideshows stand in for the PC
+FMV cinematics; their narrative order is **file order, not slide index** — slide
+indices are asset-bank offsets (`SLIDEFADEUP n` → image `004/(0x13+n)`), one
+slide is referenced by nothing and another is shared by two scripts, so no total
+order exists in them.
+
+`extract_glue.py` handles both, and is lossless on all four ROM releases.
+
+### 5.6 Assets are shared with the PC release, byte for byte
+
+The glue scripts reference PC asset paths, and the assets themselves match:
+
+- 48 of 49 referenced paths resolve in the PC MPQs as written; 44/44 of the
+  fully-qualified ones resolve in a Remastered CASC storage.
+- **18 of 19 background images are byte-identical** to the RLE-decoded pixel
+  data of the corresponding PC `.pcx`. The one mismatch is the blank plate: PC
+  fills it with palette index 254, the N64 with 0.
+- **19 of 19** 48-byte font ramps are byte-identical to the 48×1 pixel row of
+  the PC `glue\pal??\tfont.pcx`.
+- Exactly one N64-original asset exists — `starfield`, present in neither the
+  MPQs nor CASC, reachable only from the credits.
+
+The 20 triplets at `003/(0x3D + 3n)` are (image, palette, 48-byte font ramp).
+Images are 640×480 8bpp, 307,216 bytes = 16-byte big-endian header + 640·480.
+Palettes are 518 bytes = 6-byte prefix + 256 big-endian RGBA5551 words, and are
+**not** a simple bit-truncation of the PC palette (`v>>3` matches 77/256,
+round-to-nearest 56/256); the exact quantiser is unidentified.
+
+## 6. Putting briefings back: the MBRF section
+
+PC StarCraft stores campaign briefings as trigger records in `MBRF`, which is
+**byte-identical in layout to `TRIG`**: 2400 bytes per record = 16 conditions ×
+20 + 64 actions × 32 + a u32 execution-flags word + a 27-byte executed-for-player
+array + 1 byte of current action. `MBRF` sits immediately after `TRIG`.
+
+Condition record, 20 bytes: location u32@0, group u32@4, quantity u32@8, unit
+u16@12, comparison u8@14, condition-type u8@15, resource u8@16, flags u8@17,
+mask u16@18. **Every shipped briefing trigger uses exactly one condition,
+opcode 13, with an otherwise all-zero body.**
+
+Action record, 32 bytes: location u32@0, string index u32@4, wav string index
+u32@8, time u32@12, group1 u32@16, group2 u32@20, unit type u16@24, action type
+u8@26, modifier u8@27, flags u8@28, then 3 zero pad bytes. In `MBRF` the
+location and group2 fields are unused.
+
+| Opcode | Action | Fields used |
+|---|---|---|
+| 0 | *(padding)* | |
+| 1 | Wait | time |
+| 2 | Play WAV | wav, time |
+| 3 | Display Text | string, time |
+| 4 | Mission Objectives | string |
+| 5 | Show Portrait | unit type = unit id, group1 = slot, flags `0x10` |
+| 6 | Hide Portrait | group1 = slot |
+| 7 | Display Speaking Portrait | group1 = slot, time |
+| 8 | Transmission | group1, string, wav, time, modifier |
+
+There are exactly **four portrait slots**, 0–3, carried in `group1`. The wav
+field at +8 is a **direct index into `STR`** holding a path string — not an
+index into the `WAV ` section, which is only a registration list of those `STR`
+indices.
+
+### 6.1 Which idiom to emit
+
+All **433** Transmission actions across 67 genuine campaign scenarios carry a
+non-zero wav index — no exceptions. The N64 briefings have no audio, so this
+project emits Blizzard's wav-free sequence instead of opcode 8:
+
+```
+ShowPortrait → DisplaySpeakingPortrait → DisplayText → Wait
+```
+
+Whether a wav-*less* opcode 8 works at all is unknown and needs the engine to
+settle; if it does, each line collapses from three actions to one.
+
+### 6.2 Timing has to be invented
+
+The N64 script format carries **no timing information whatsoever** — no
+durations, no waits, nothing. Every duration is synthesised. Fitting over 336
+N64 lines matched to genuine campaign transmissions gives
+
+```
+t = 73.08 × characters + 517   ms
+```
+
+with a median absolute residual of ~1.2 s and p90 ~3.6 s. Across all 433
+campaign transmissions the ms-per-character median is 74.1 (p10 61.2, p90 95.0),
+so the underlying spread is about 1.5× between fast and slow lines — a
+per-character model cannot do materially better. Emitted times round to 100 ms,
+floor 1500, cap 45000.
+
+### 6.3 The `STR` trap
+
+Injecting a briefing means allocating new `STR` entries, which means knowing
+which entries are already referenced. The referencing sections are `SPRP`,
+`FORC`, `UNIS`/`UNIx`, `SWNM`, `MRGN`, `WAV `, `TRIG` and `MBRF`.
+
+The one that bites: the custom-unit-name array in `UNIS`/`UNIx` is a `u16[228]`
+at a **fixed offset of 3192**, and it is *not* the last field — the base-weapon-
+damage and upgrade-bonus arrays follow it. Deriving the offset by measuring back
+from the section end (4048 bytes for `UNIS`, 4168 for `UNIx`) lands 400 or 520
+bytes late, inside the weapon tables, which reads damage integers as string
+indices and misses every real unit name. The consequence is silent and ugly:
+briefing dialogue gets allocated over a live unit name and displays as that
+unit's name in game.
+
+`check_string_reuse.py` guards this, deliberately hardcoding its own copy of the
+offset and re-reading originals from the ROM so it shares no code with the
+injector.
+
+`STR` growth is otherwise a non-issue: injecting every briefing costs ~84 KB
+across all 96 maps and the largest resulting section is ~18 KB against the u16
+offset ceiling of 65,535.
+
+### 6.4 Edition trap
+
+Five portraits map to unit ids that mean different units in the two editions —
+88 is Artanis in Brood War and Merc Biker in original StarCraft, 98 is Raszagal
+versus Greedo. A briefing using ids 17–21 must therefore land in a `.scx`. The
+converter checks this against the map's own version stamp and refuses rather
+than writing a wrong face. In this ROM nothing actually conflicts.
+
+## 7. CASC (Remastered and later)
+
+Modern installs replaced MPQ with CASC, and StarCraft: Remastered keeps its
+campaign maps there rather than in the legacy archives. The chain to one file:
+
+```
+.build.info              pipe-separated, gives the build config's MD5
+Data/config/xx/yy/hash   build config: names the ENCODING and ROOT files
+Data/data/*.idx          EKey prefix -> (archive, offset, encoded size)
+Data/data/data.NNN       the archives, holding BLTE blobs
+ENCODING                 CKey -> EKey
+ROOT                     name -> CKey
+```
+
+So: **name → CKey → EKey → archive/offset → BLTE**.
+
+Layout traps worth knowing, each of which cost time here:
+
+- The `.idx` bucket files live in **`Data/data/`** alongside the archives, not
+  in `Data/indices/` — that holds CDN-style `.index` files a local storage
+  never consults.
+- A `FILE_EKEY_ENTRY` is a 9-byte EKey prefix + 5-byte **big-endian** storage
+  offset + 4-byte **little-endian** encoded size; the top 10 bits of the 40-bit
+  offset select the `data.NNN` archive.
+- Every blob is preceded by a 30-byte span whose first 16 bytes are the EKey
+  **stored back-to-front**.
+- `FILE_CKEY_ENTRY.EKeyCount` is **little-endian** while `ContentSize` beside it
+  is big-endian. Reading the count big-endian silently yields exactly one entry
+  per page.
+- StarCraft I uses the plain-text root handler (`TRootHandler_SC1`), not TVFS,
+  MNDX or the WoW handler.
+
+BLTE frames may be `N` stored, `Z` zlib, `4` LZ4, `F` recursive or `E`
+Salsa20-encrypted. A survey of 181,119 frames in the StarCraft storage found
+**zero encrypted frames**, so the missing-key problem does not arise for this
+product — though it would for WoW or Overwatch, where keys come from the
+community TACT key list (CascLib regenerates its table from wowdev.wiki via
+`wiki2cppkeys.py`).
+
+## 8. Reading MPQ files with no name
+
+MPQ derives a file's decryption key from its filename, so a nameless encrypted
+file looks unreadable — and the retail campaign maps are exactly that: 68 blocks
+in the large installer archives, referenced by no listfile.
+
+StormLib recovers the key from content instead
+(`SBaseCommon.cpp:548-679`). A compressed and encrypted file begins with its
+sector offset table, whose first entry is predictable — `(sector_count + 1) * 4`
+— which pins the key, and whose second entry bounds it. `FIX_KEY` (`0x20000`)
+means the effective key is `((base_key + block_offset) ^ file_size)`.
+
+`mpq_keycrack.py` implements this: **4,732 of 4,746 encrypted blocks recovered,
+99.7%**. The 14 failures are the whole failure class and are unfixable by this
+technique — encrypted-but-uncompressed 2-byte stubs, which have no sector offset
+table to attack.
+
+Two cautions. The first-DWORD test does **not** leave a unique candidate; it
+averages 1.91, and the safety comes from the second-DWORD bound plus validating
+the whole offset table for monotonicity. That table check is degenerate for
+single-sector files, so those rest on the second DWORD alone.
