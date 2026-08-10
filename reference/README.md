@@ -3,6 +3,14 @@
 Prior art this project is built on, vendored so the source that the
 implementation was derived from stays alongside it.
 
+**Binary test fixtures have been stripped.** Upstream mpyq ships a StarCraft II
+map (`test/last_sector_compression.s2ma`) and StormLib ships a compiled
+`storm.dll`; both are Blizzard artefacts, and this repository states that it
+contains no game data. They are removed from all five vendored mpyq copies and
+from StormLib. Nothing here depends on them — `pkware_explode.py` reads
+StormLib's `explode.c` source, not any binary — but the vendored test suites
+will not run as-is. Fetch them from upstream if you want to run those.
+
 ## BOLTextract-cpp/
 
 Adam Heinermann's original C++ BOLT extractor, upstream at
