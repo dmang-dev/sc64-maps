@@ -159,10 +159,50 @@ implode universally, that is worth reconsidering.
 5. **Optional polish:** a PKWARE implode compressor would cut output size ~3.9×
    and make our maps byte-level conventional. Decoders exist; no encoder does.
 
-Retail campaign maps are **not** in this install's legacy MPQs — they live in
-the CASC store under `Data\`. That blocks the highest-fidelity route for item 2
-(copying original `MBRF` records verbatim) without either a CASC reader or a
-legacy 1.16 install.
+## Resolved: the campaign maps are reachable now
+
+Two independent pipelines both reach them, and they cross-check each other.
+
+- **`mpq_keycrack.py`** recovers an MPQ file's key from content rather than its
+  filename (StormLib's `DetectFileKeyBySectorSize`). 4,732 of 4,746 encrypted
+  blocks corpus-wide, 99.7%. The 14 failures are 2-byte uncompressed stubs with
+  no sector offset table to attack — the whole failure class, and unfixable by
+  this technique.
+- **`casc_read.py`** completes the local CASC path and decodes all 21,161
+  locally-present root names with zero failures and zero MD5 mismatches.
+
+Correcting the earlier note: the campaign is **not** in `StarDat.mpq` or
+`BrooDat.mpq` — 3,826 blocks there, zero CHKs. It is 68 nameless blocks in the
+two ~480 MiB installer archives, listed by no listfile anywhere. All 68 are
+MTXM-identical to the 68 enUS campaign files reached via CASC, which shares no
+code with the MPQ path.
+
+That unblocks the highest-fidelity route for the briefing conversion: original
+`MBRF` records can now be read verbatim rather than synthesised.
+
+## Resolved: 008/043 is "Dark Origin"
+
+The untitled Brood War map is the **secret bonus mission** — CASC asset path
+`campaign/EXPZerg/Bonus/staredit/scenario.chk`, ROM title-table entry 59 "Dark
+Origin", internally "Zerg Level 9B". Four independent witnesses agree: the CASC
+asset path, a cracked `BroodWar.mpq` block, the map's own triggers (which name
+`Bonus.scx` and branch from 008/041 under a `DisableBonus` switch), and a
+60-entry mission-title block in the ROM at `0x0D1010`.
+
+The earlier "variant of *The Insurgent*" guess is refuted: 96×96 Arctic vs
+128×128 Twilight, best positional terrain agreement 1.37% (chance level), 4
+shared unit ids, 4 shared strings of which 3 are boilerplate. The resemblance
+was entirely a shared Zeratul portrait, which 11 of the 96 briefings use.
+
+The N64 version keeps the PC terrain byte-for-byte and re-authors units and
+triggers — so it is *not* byte-identical to PC `Bonus.scx`.
+
+The other two untitled maps are ordinary campaign missions carrying StarEdit's
+default name: 008/039 = `EXPZerg/Zerg01` ("Vile Disruption"), 008/03A =
+`EXPZerg/Zerg02` ("Reign of Fire"). Six of the 96 CHKs carry the default name,
+and 45 of the 60 campaign CHK names are dev-era working titles that differ from
+what the N64 displays — **the CHK name field is not a reliable identifier for
+this ROM.**
 
 ## Legal
 

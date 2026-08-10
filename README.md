@@ -227,9 +227,18 @@ melee/scenario maps with no briefing at all. The N64 versions have one.
 | `008/062` | Old Faithful | 128×128 | Ashworld | 2 | `(4)Old Faithful.scm` | 3 msgs |
 | `008/008` | Tutorial 1 | 64×64 | Badlands | 2 | `campaign\terran\tutorial` | 3 msgs |
 
-One loose end: `008/043` (index 59) is an untitled 96×96 Brood War map that
-falls outside all six campaigns, whose briefing closely resembles *The
-Insurgent*. Whether it is a cut mission or an alternate version is unresolved.
+`008/043` (index 59) is **not** exclusive, despite being untitled and falling
+outside all six campaigns. It is Brood War's secret bonus mission — CASC asset
+path `campaign/EXPZerg/Bonus`, ROM title-table entry "Dark Origin", internally
+"Zerg Level 9B". Four independent witnesses agree, including the map's own
+triggers, which branch in from `008/041` under a switch its designer named
+`DisableBonus`. The N64 version keeps the PC terrain byte-for-byte and
+re-authors units and triggers.
+
+Worth knowing before using scenario names as identifiers: **45 of the 60
+campaign CHK names are dev-era working titles** that differ from what the N64
+actually displays, and six maps carry StarEdit's default "Untitled Scenario".
+The real titles live in a 60-entry table in the ROM at `0x0D1010`.
 
 ## Versus the community recreations
 
