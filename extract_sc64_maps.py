@@ -135,7 +135,12 @@ class BoltArchive:
         (self.hour, self.minute, self.second, self.millis,
          self.month, self.day, year, self.num_entries) = hdr[4:12]
         self.year = 1900 + year
-        self.end_offset = struct.unpack_from(">I", hdr, 12)[0]
+        # BOLTextract calls this field "end_offset (most of the time)". It is
+        # not one here: it reads 0x9C036DD0 in the USA, Australia and German
+        # ROMs alike, even though those archives differ in 401 of 2111 files,
+        # and the last non-padding byte of the USA archive is at BOLT+0x1E85062.
+        # Nothing in this project depends on it; keep it exposed but unnamed.
+        self.header_u32 = struct.unpack_from(">I", hdr, 12)[0]
 
     @property
     def build_stamp(self) -> str:
