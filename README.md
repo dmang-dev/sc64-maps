@@ -189,6 +189,75 @@ differing records the *only* field that ever changes is the 4-byte serial
 unit links are identical in every record. Triggers were rewritten, which is
 what you would expect from a console port.
 
+## What the N64 version has that PC doesn't
+
+The ROM ends with a block of nine maps that are not campaign missions and carry
+real authored briefings — unlike the 27 melee maps, whose briefings are all the
+same 58-byte `Blank BRIEFING` placeholder. That split is the ROM telling you
+which content Mass Media worked on.
+
+**Exclusive to StarCraft 64.** None of these names appear anywhere in a PC
+install — not in `arr\mapdata.tbl`, `rez\stat_txt.tbl`, `rez\gluAll.tbl`,
+`Rez\objctivs.tbl`, any MPQ listfile, or the scenario name of any installed map.
+
+| BOLT | Map | Size | Tileset | Players | Edition | Briefing |
+|---|---|---|---|---|---|---|
+| `008/063` | Guardians | 128×128 | Jungle | 2 | StarCraft | 2 msgs |
+| `008/064` | Zerg Troopers | 96×64 | Badlands | 6 | StarCraft (hybrid) | 5 msgs |
+| `008/065` | Resurrection IV | 96×192 | Arctic | 4 | Brood War | 14 msgs |
+| `008/066` | Rage | 96×96 | Badlands | 8 | Brood War | 7 msgs |
+| `008/067` | Mass Hysteria | 128×128 | Installation | 2 | Brood War | 2 msgs |
+
+**Probably exclusive.** PC's `arr\mapdata.tbl` has exactly one tutorial slot
+(`campaign\terran\tutorial`); the ROM ships two, and "Tutorial 2" is not found
+in any PC data.
+
+| BOLT | Map | Size | Tileset | Players | Edition | Briefing |
+|---|---|---|---|---|---|---|
+| `008/009` | Tutorial 2 | 64×64 | Badlands | 2 | StarCraft (hybrid) | 3 msgs |
+
+**PC maps that Mass Media gave briefings to.** These exist on PC as plain
+melee/scenario maps with no briefing at all. The N64 versions have one.
+
+| BOLT | Map | Size | Tileset | Players | PC counterpart | Briefing |
+|---|---|---|---|---|---|---|
+| `008/05F` | Pro Bowl | 128×96 | Jungle | 2 | `(2)Pro Bowl.scm` | 8 msgs |
+| `008/060` | Round-Up | 64×64 | Badlands | 3 | `(4)Zergling Round-Up.scm` | 5 msgs |
+| `008/061` | King of the Hill | 128×128 | Jungle | 2 | `(4)King of the Hill.scm` | 2 msgs |
+| `008/062` | Old Faithful | 128×128 | Ashworld | 2 | `(4)Old Faithful.scm` | 3 msgs |
+| `008/008` | Tutorial 1 | 64×64 | Badlands | 2 | `campaign\terran\tutorial` | 3 msgs |
+
+One loose end: `008/043` (index 59) is an untitled 96×96 Brood War map that
+falls outside all six campaigns, whose briefing closely resembles *The
+Insurgent*. Whether it is a cut mission or an alternate version is unresolved.
+
+## Versus the community recreations
+
+Two of the exclusives have been recreated by hand for PC. Neither is derived
+from ROM data, which this project's output makes checkable for the first time.
+
+[**Resurrection IV**](https://staredit.net/sc1db/file/4856/) by Zero and Drake
+Clawfang (2020) matches the shell exactly and the interior not at all:
+
+| | Recreation | ROM original |
+|---|---|---|
+| Dimensions | 96×192 | 96×192 |
+| Tileset | Arctic | Arctic |
+| `VER` / `TYPE` | 205 / `RAWB` | 205 / `RAWB` |
+| Units | 381 | 388 |
+| Triggers | 67 | 100 |
+| **Terrain tiles matching** | **1,206 / 18,432 (6.5%)** | |
+| Strings in common | 13 (4% of the smaller set) | |
+
+The authors reproduced the outer parameters — dimensions, tileset, version
+stamp — then rebuilt the terrain by hand. 6.5% is about what coincidence gives
+on a shared tileset.
+
+[**Wanna Be Zerg Troopers**](http://staredit.net/sc1db/file/3526/) diverges
+further, and its title is honest about it: 128×128 against the original's
+96×64, `VER` 205/`RAWB` against 63/`RAWS`, 438 units against 272, and 3 strings
+in common. Terrain is not comparable at different dimensions.
+
 ## Layout
 
 ```
