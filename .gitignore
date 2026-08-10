@@ -1,7 +1,15 @@
 # ---------------------------------------------------------------------------
-# Never commit game data. The ROM and everything derived from it is Blizzard's
-# copyrighted work -- this repository ships tools only.
+# Never commit game data. This repository ships tools only.
+#
+# gamedata/ holds everything belonging to Blizzard or Nintendo, or derived from
+# it: ROMs, installers, extracted MPQ archives, and the maps and briefings this
+# project produces. The whole tree is ignored; only its README is tracked.
+# The extension rules below are a second line of defence in case something
+# lands outside it.
 # ---------------------------------------------------------------------------
+/gamedata/*
+!/gamedata/README.md
+
 *.n64
 *.z64
 *.v64
