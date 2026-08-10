@@ -77,14 +77,17 @@ data-losing edge cases).
   from upstream's own fixtures identically, including
   `test/last_sector_compression.s2ma`, added by PR #26 for the last-sector case.
 
+- **Measured against 323 genuine maps** from the retail install. Format
+  version, header size, sector size and archive geometry match in all 323. All
+  96 of ours also pass a full emulation of StormLib's acceptance checks. The
+  places we differ are legal *and* precedented in shipped content — see
+  `docs/FORMAT.md` §4.2.
+
 ### Not verified
 
-**No map has been loaded in StarCraft itself.** This is the one real gap. The
-game is installed at `I:\Blizzard\StarCraft` (`StarEdit.exe`, `storm.dll`, and
-163 genuine `.scm` + 160 `.scx` under `Maps\`), which arrived late in the
-session, so the comparison against real Blizzard maps had only just been
-launched when work stopped. Try one map in StarEdit or the game before trusting
-all 96.
+**No map has been loaded in StarCraft itself.** Still the one real gap. Every
+verdict comes from the reference implementation and from real-world precedent,
+not from retail `Storm.dll`. Try one map in StarEdit or the game.
 
 ## Design decision worth understanding
 
@@ -104,35 +107,50 @@ in StarCraft-era Storm) or implementing PKWARE DCL. **The pending real-map
 comparison may argue for changing this** — if genuine maps turn out to use
 implode universally, that is worth reconsidering.
 
+## Resolved since the first draft
+
+- **Real-map comparison — done.** Our format choice is validated; see
+  `docs/FORMAT.md` §4.2. No change needed.
+- **Does SC64 already carry PC briefings? — No.** All 96 CHKs have an `MBRF`
+  section header, but 84 are zero-length. Only 12 are populated and just 10 are
+  usable. So the briefings genuinely had to be extracted separately, and a
+  converter would need to *build* 67 of them. Usefully, the surviving 10 contain
+  the same dialogue as their paired 007 script, which makes them a ready-made
+  regression corpus for any converter — and proves the scripts are a
+  re-encoding of the PC briefings rather than N64-original text.
+- **Portrait ids — solved, by measurement.** The speaker's name is a literal
+  line in each `<TEXT>` block, so no inference was needed. Table in
+  `docs/FORMAT.md` §5.2. The artwork is at BOLT `007/(0x60+n)`.
+- **Two bugs found and fixed in this project's own code:** `verify_maps.py`
+  rejected every genuine map (hard `dwArchiveSize` equality; no masking of
+  inflated hash table sizes) — now 40/40 sampled real maps parse. And the
+  briefing parser dropped an unclosed `<PORT12` in 007/025, silently giving the
+  following dialogue the wrong speaker's portrait.
+
 ## Open items
 
-1. **Load a map in StarCraft.** The outstanding verification gap. Highest value
-   for the least effort.
-2. **Compare against genuine Blizzard maps** at `I:\Blizzard\StarCraft\Maps\` —
-   block flags, compression method, sector size, hash table size. Confirms or
-   corrects the decision above.
-3. **Do the SC64 CHKs carry a populated `MBRF` section?** Unchecked. If they do,
-   PC-format briefings may already be inside the extracted maps and the text
-   scripts are a bonus rather than the only copy. Check this before designing
-   any briefing conversion.
-4. **Portrait ids.** `<PORTn>` uses 0, 1, 2, 3, 4, 6, 7, 8, 9, 12–22 — no
-   `PORT5`, `PORT10` or `PORT11`. What each depicts is not in the scripts. It
-   may be inferable by cross-referencing which missions each id speaks in, or
-   recoverable from portrait GRPs in the ROM or in `StarDat.mpq`. Treat any
-   character-name mapping as inference, not fact, unless proven.
-5. **Converting N64 briefings into PC `MBRF` triggers.** Feasibility unknown and
-   gated on item 3. Blockers to expect: STR table growth, portrait id mapping,
-   and timing values the N64 format does not carry.
-6. **Directories 003 and 004** (61 establishing-shot scripts, 13 slideshow
-   scripts) are documented but not extracted. Different markup from 007. Neither
-   count matches 96, so they sit on a different axis from the mission pairing.
-7. **mpyq PR #39** — awaiting maintainer. Upstream is quiet (newest merged PR is
+1. **Load a map in StarCraft.** The outstanding verification gap, and now the
+   only one. Highest value for the least effort.
+2. **Converting N64 briefings into PC `MBRF` triggers.** Feasible and fully
+   specified — `MBRF` records are byte-identical to `TRIG` (2400 bytes), the
+   action opcodes and field layout are known, and the string budget is a
+   non-issue (largest resulting `STR` is 18 KB against a 64 KB ceiling). Two
+   real blockers: the N64 format carries **no timing information at all**, so
+   every duration must be synthesised; and five portraits map to unit ids that
+   only exist in Brood War, so any briefing using ids 17–21 must be written as
+   a `.scx`. Validate a converter by regenerating the 10 surviving originals.
+3. **Directories 003 and 004** (61 establishing-shot scripts, 13 slideshow
+   scripts) are documented but not extracted. Different markup from 007, and
+   003 is cp1252 rather than ASCII.
+4. **mpyq PR #39** — awaiting maintainer. Upstream is quiet (newest merged PR is
    2020; #35/#36/#37 open). Their CI is `on: [push]`, so fork PRs get no checks.
+5. **Optional polish:** a PKWARE implode compressor would cut output size ~3.9×
+   and make our maps byte-level conventional. Decoders exist; no encoder does.
 
-An analysis workflow covering items 2, 3 and 4 was running when the session
-ended and did not report back. Its script is under
-`.claude/.../workflows/scripts/sc64-briefings-and-mpq-validation-*.js` and can be
-re-run; nothing depends on recovering that particular run.
+Retail campaign maps are **not** in this install's legacy MPQs — they live in
+the CASC store under `Data\`. That blocks the highest-fidelity route for item 2
+(copying original `MBRF` records verbatim) without either a CASC reader or a
+legacy 1.16 install.
 
 ## Legal
 

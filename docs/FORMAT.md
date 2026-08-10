@@ -163,6 +163,66 @@ compressor has to be shipped.
 The alternative of setting no compression flag at all also works in StormLib,
 but leaves out the sector offset table and exercises a much rarer code path.
 
+### 4.2 Checked against the 323 maps shipped with StarCraft
+
+Measured against every `.scm`/`.scx` under a retail install's `Maps\`:
+
+| Property | Genuine maps | Ours | Verdict |
+|---|---|---|---|
+| Format version / header size | 0 / 32, all 323 | same | identical |
+| Sector size shift | 3 (4096 B), all 323 | 3 | identical |
+| Archive geometry | data → hash → block, contiguous, all 323 | same | identical |
+| `scenario.chk` flags | `0x80010200` ×317, `0x80000100` ×4, `0x80030100` ×1 | `0x80000200` | unusual, legal |
+| Compression | PKWARE implode only — 22,019 sectors, zero zlib | none (verbatim) | legal, precedented |
+| Encryption | encrypted in 318/322 | none | precedented |
+| Hash table size | 1024 in 318 | 16 | legal |
+| Trailing bytes | 260-byte `NGIS` signature in 206; none in 110 | none | normal |
+
+Three findings settle the design question:
+
+- **Verbatim sectors occur in Blizzard-authored maps.** `(3)Triad.scm` sector
+  31 and `(4)Inferno.scm` sector 90 are both stored uncompressed. Retail
+  Storm.dll reads them, so the path is exercised by shipped content — not just
+  legal on paper.
+- **Encryption is not required.** Four genuine, tournament-played iCCup ladder
+  maps ship `scenario.chk` with flags `0x80000100` and no `ENCRYPTED` bit.
+- **All 96 of our maps pass a full emulation of StormLib's acceptance checks** —
+  flag validity under `MPQ_FILE_VALID_FLAGS_SCX`, table positions, sector
+  offset table monotonicity, `SOT[0] == table length`, `SOT[-1] == packed
+  size`, no oversized sector, and byte-exact read-back of both members.
+
+Two quirks are worth knowing before anyone "fixes" them:
+
+- Our `dwCmpSize` is slightly **larger** than `dwFileSize` (the sector offset
+  table is pure overhead when nothing compresses). No real map does this, but
+  it is harmless: both StormLib and Storm.dll decide compression from the flags
+  and per-sector sizes, never from `dwCmpSize`. Clearing `MPQ_FILE_COMPRESS` to
+  "correct" it would break reading outright, because an uncompressed file has
+  no sector offset table at all.
+- Never set `MPQ_FILE_SINGLE_UNIT` or `MPQ_FILE_SECTOR_CRC` on a map: they
+  appear in zero of the 323, and StormLib masks them off for `.scm`/`.scx`
+  (`StormLib.h`, `MPQ_FILE_VALID_FLAGS_SCX`), which would desynchronise the
+  writer's assumptions from the reader's.
+
+Not compressing costs about 3.9× in size — our scenario data stores at ratio
+1.001 against real maps' 0.255. That is size only, not compatibility. PKWARE
+implode is the only precedented option if it ever matters.
+
+### 4.3 Reading *genuine* maps
+
+Two traps, both hit during this comparison:
+
+- `dwArchiveSize` is advisory. 199 of 204 sampled maps disagree with the file
+  length, because of the appended signature. StormLib recomputes rather than
+  trusting the field, so a hard equality check rejects almost every real map.
+- Map protectors declare `dwHashTableSize` as `0x10000400` (268 million
+  entries). StormLib masks it with `BLOCK_INDEX_MASK` (`0x0FFFFFFF`);
+  without that a reader tries to allocate gigabytes.
+
+`verify_maps.py` handles both. It still cannot read genuine maps end to end,
+because their `scenario.chk` is encrypted and PKWARE-imploded and it implements
+neither — it validates *our* output, and parses real headers and tables only.
+
 Two caveats worth knowing:
 
 - **mpyq cannot read the result.** It compares a sector's stored size against
@@ -180,9 +240,14 @@ PC StarCraft stores campaign briefings inside the map, as triggers in the CHK's
 their own BOLT directory, completely separate from the scenarios. That is why
 they do not travel with the maps and need `extract_briefings.py`.
 
-Directory 007 holds **119** entries, not 96. Exactly 96 of them are briefing
-scripts (`file_type` 10, first byte `<`); the other 23 are unrelated binary
-files (`file_type` 18). Filtering on directory alone will mix them together.
+Directory 007 holds **119** entries, not 96: the 96 briefing scripts
+(`007/000`–`007/05F`, `file_type` 10, first byte `<`) followed by 23 entries
+(`007/060`–`007/076`, `file_type` 18) that are **the briefing portrait
+bitmaps**. Filtering on directory alone mixes them together.
+
+Do not select scripts by `file_type` either — in directory 003, type 10 covers
+both scripts and 48-byte binary font ramps. Select by index range, or by
+sniffing the leading bytes.
 
 Briefing `007/i` belongs to map `008/(i+8)`. Both runs are 96 long, contiguous
 and in the same order — `007/000` ↔ `008/008` (*Tutorial 1*) through `007/05F`
@@ -215,29 +280,115 @@ Dropping *all* leading blanks instead is a mistake: a transmission with no
 speaker is written with an **empty** speaker line, and collapsing blanks makes
 that indistinguishable from one that has a speaker.
 
-Portrait ids observed: 0, 1, 2, 3, 4, 6, 7, 8, 9, 12–22. There is no `PORT5`,
-`PORT10` or `PORT11`. What each id depicts is not recorded in the scripts.
+### 5.2 Portraits
 
-### 5.2 Edge cases
+`<PORTn>` indexes the bitmaps in the same directory: **portrait *n* is BOLT
+entry `007/(0x60 + n)`**. All 23 are 3376 bytes — a 16-byte big-endian header
+followed by 60×56 8-bit indexed pixels:
 
-Only two files deviate, and both matter:
+| Offset | Size | Value on all 23 |
+|---|---|---|
+| 0 | 4 | `0x00000008` — bits per pixel |
+| 4 | 4 | 0 |
+| 8 | 2+2 | `0x003C`, `0x0038` — width 60, height 56 |
+| 12 | 4 | 0 |
 
+`16 + 60*56 = 3376`, matching the entry size exactly. The files carry **no
+palette**; the briefing screen must bind a shared one from elsewhere (the
+518-byte `file_type` 14 entries in other directories are palettes — 6-byte
+header plus 256 big-endian RGBA5551 entries).
+
+Ids used are 0–4, 6–9 and 12–22. There is no `PORT5`, `PORT10` or `PORT11`
+anywhere in the ROM, though the bitmaps for all three exist — finished artwork
+that shipped unused.
+
+**Who each id is does not need inferring.** The first line of every `<TEXT>`
+block is the speaker's name, and each block is scoped by the most recent
+`<PORTn>`, so the mapping is measured directly from the data. Over the 69
+written briefings (480 non-closing transmissions), every id resolves to exactly
+one character; only spelling and honorific variants differ:
+
+| id | blocks | speaker labels in the data |
+|---:|---:|---|
+| 0 | 47 | Advisor |
+| 1 | 22 | Zerg Overmind |
+| 2 | 28 | Aldaris (also `Aldaris.`, `Protoss High Templar`) |
+| 3 | 17 | General Duke / Duke |
+| 4 | 6 | Daggoth |
+| 6 | 15 | Fenix |
+| 7 | 3 | Fenix |
+| 8 | 42 | Jim Raynor / Raynor / Jim |
+| 9 | 10 | Kerrigan |
+| 12 | 71 | Infested Kerrigan / Kerrigan |
+| 13 | 35 | Mengsk |
+| 14 | 24 | Tassadar |
+| 15 | 5 | Zasz |
+| 16 | 28 | Zeratul |
+| 17 | 23 | Artanis |
+| 18 | 23 | Raszagal (also `Raszegal`) |
+| 19 | 17 | Stukov |
+| 20 | 32 | DuGalle (also `Du Galle`) |
+| 21 | 29 | Infested Duran / Duran |
+| 22 | 2 | Mr. Slate |
+
+Key any lookup on the **integer**, never the label — the labels are
+inconsistent, including two apparent typos. Ids 6 and 7 are both Fenix and
+their mission runs do not overlap, which is consistent with the Zealot →
+Dragoon change; 9 and 12 split Kerrigan the same way.
+
+### 5.3 Placeholders
+
+27 of the 96 scripts are unwritten placeholders: byte-identical 58-byte files,
+contiguous at `007/03C`–`007/056`, carrying the literal body `Blank BRIEFING`.
+They pair with the 27 melee maps, which have no briefing. Detect them by that
+marker and exclude them from any statistics — they alone supply every
+`Blank BRIEFING` line and would otherwise pollute the portrait table.
+
+That leaves **69 written briefings**.
+
+### 5.4 Edge cases
+
+Three files deviate. Two of them cost data if ignored:
+
+- **007/025** contains a `<PORT12` whose `>` was never written — the raw bytes
+  are `<PORT12` CRLF `<TEXT>`. A tokeniser that requires the `>` drops the tag
+  entirely and the dialogue after it silently inherits the *previous*
+  speaker's portrait. A tokeniser using `<([^>]*)>` instead swallows the
+  following `<TEXT` as an argument, which is just as wrong. Terminate a tag
+  name at the first of `>`, CR, LF or a subsequent `<`. This is the only
+  unbalanced angle bracket in directories 003, 004 and 007 combined.
 - **007/033** contains a `<PORT8>` whose `<TEXT>` tag was never written. The
   block that follows still has the usual speaker/blank/body shape, so a parser
-  that ignores text under a `<PORTn>` silently drops a transmission — 575
-  instead of 576. Treat it as an implicit `<TEXT>`.
-- **007/033** also contains a bare `<PORT>` with no digits, followed by a
-  transmission whose speaker line is empty. Reads as "nobody in particular".
+  that ignores text under a `<PORTn>` silently drops a transmission. Treat it
+  as an implicit `<TEXT>`.
+- **007/033** also contains a bare `<PORT>` with no digits, followed by the
+  only transmission in the corpus whose speaker line is empty. Reads as
+  "no portrait / nobody in particular"; parse the id as `None` rather than
+  defaulting to 0.
 - **007/017** has a `<PORT0>` immediately followed by `<PORT14>` with nothing
-  between (the last one before a `<TEXT>` wins), and is the one file where a
-  tag is *not* alone on its line — a `<PORT0>` sits at the end of a prose line.
-  1084 of the 1085 tags in the corpus are alone; scan for tags anywhere rather
-  than matching whole lines.
+  between, so one portrait command is dead — model `<PORTn>` as sticky state
+  the next one overwrites, and never assert `count(PORT) == count(TEXT)`. It is
+  also the one file where a tag is *not* alone on its line, a `<PORT0>` sitting
+  at the end of a prose line. Scan for tags anywhere rather than matching whole
+  lines.
 
-### 5.3 Related script directories
+`<TEXTC>` deserves its own warning: its payload is always the fixed UI string
+`End of Briefing`, never dialogue. Rendering it as a transmission gives every
+briefing a phantom speaker of that name.
+
+### 5.5 Related script directories
 
 Two other directories hold scripts in the same family. Neither is a mission
 briefing, and they use different markup, so they are not extracted by default.
+Both hold binary assets after their script prefix, the same way 007 does:
+directory 003 is 61 scripts then 60 asset entries, directory 004 is 13 scripts
+then 85.
+
+Note directory 003 is **cp1252, not ASCII** — two files carry a `0x92` curly
+apostrophe, which makes `decode('ascii')` and `decode('utf-8')` both raise.
+Directory 004 also breaks the "payload starts after CRLF" rule that holds in
+003 and 007: 56 of its tags carry their payload inline on the same line as the
+closing `>`, so strip a leading CRLF only if one is present.
 
 - **Directory 003** (61 files) — "establishing shot" / glue screens, using
   *double*-angle markup with arguments: `</COMMENT text>`, `</BACKGROUND

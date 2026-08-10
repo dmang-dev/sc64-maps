@@ -82,13 +82,20 @@ melee maps, both tutorials, and the N64-exclusive content that was never
 released for PC — *Resurrection IV*, plus the exclusive missions *Guardians*,
 *Rage*, *Zerg Troopers*, and a handful of others.
 
-Plus 96 mission briefings, one per scenario, holding 576 transmissions between
-them. On PC these live inside the map as `MBRF` triggers, but the N64 build
-keeps them as separate plain-text scripts, so they are a second extraction
-rather than something that rides along with the maps. Each briefing is rendered
-as readable text — objectives, then each transmission with its speaker and
-portrait id — and `--raw` / `--json` give you the original script bytes or the
+Plus 96 mission briefings — 69 actually written, holding 549 transmissions, and
+27 unwritten placeholders belonging to the melee maps, which are flagged rather
+than passed off as content. On PC these live inside the map as `MBRF` triggers,
+but the N64 build keeps them as separate plain-text scripts, so they are a
+second extraction rather than something that rides along with the maps. Each is
+rendered as readable text — objectives, then each transmission with its speaker
+and portrait — and `--raw` / `--json` give the original script bytes or the
 parsed structure instead.
+
+The speaker's name is a literal line in the script data, so every `<PORTn>`
+portrait id resolves to a character by measurement rather than guesswork; the
+table is in [docs/FORMAT.md](docs/FORMAT.md) §5.2. The portrait artwork is in
+the ROM too, at BOLT entry `007/(0x60+n)` — 60×56 8-bit images, including three
+that shipped unused.
 
 Each is written as `.scm` or `.scx` based on the scenario's own version stamp:
 `VER` 205 / `TYPE` `RAWB` means Brood War (`.scx`), anything lower is StarCraft
@@ -125,6 +132,20 @@ See [docs/FORMAT.md](docs/FORMAT.md) for the format details, and
 match StormLib's semantics exactly — the same rules the StarCraft tool
 ecosystem relies on — and confirms the scenario inside is a well-formed CHK
 with sane dimensions and the right extension for its version. All 96 pass.
+
+The output has also been measured against the **323 genuine maps** shipped with
+a retail StarCraft install. Format version, header size, sector size and
+archive geometry are identical to real maps in all 323. Where ours differ —
+uncompressed rather than PKWARE-imploded, unencrypted, a 16-slot hash table
+instead of 1024 — the choice is legal per StormLib and, more importantly,
+precedented in shipped content: verbatim sectors occur in Blizzard's own
+`(3)Triad.scm` and `(4)Inferno.scm`, and four genuine tournament ladder maps
+ship an unencrypted `scenario.chk`. All 96 also pass a full emulation of
+StormLib's acceptance checks. See [docs/FORMAT.md](docs/FORMAT.md) §4.2.
+
+Still worth doing: **load one in the actual game.** Every verdict above comes
+from the reference implementation and from real-world precedent, not from
+retail `Storm.dll` itself.
 
 A note if you try to check the output with **mpyq**: it will fail, and the maps
 are fine — the bug is in mpyq. It decides whether a sector is compressed by

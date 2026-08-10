@@ -78,11 +78,24 @@ class MpqReader:
 
         if header_size < 32:
             raise MpqError(f"header size {header_size} too small")
-        if self.archive_size != len(self.data):
-            raise MpqError(
-                f"header says {self.archive_size} bytes, file is {len(self.data)}")
+
+        # dwArchiveSize is advisory. 206 of the 323 maps shipped with StarCraft
+        # carry 260 trailing bytes past it (the 'NGIS' strong signature), and
+        # StormLib recomputes the size rather than trusting the field, so a
+        # mismatch is normal and must not be fatal.
+        self.size_mismatch = self.archive_size != len(self.data)
+
+        # Map protectors declare an absurd hash table size (0x10000400 ->
+        # 268 million entries). StormLib masks it; without this a protected
+        # map sends the reader off allocating gigabytes.
+        # reference/StormLib/src/SFileOpenArchive.cpp:449, BLOCK_INDEX_MASK.
+        self.hash_count &= 0x0FFFFFFF
+        if self.hash_count == 0:
+            raise MpqError("hash table size is zero")
         if self.hash_count & (self.hash_count - 1):
             raise MpqError(f"hash table size {self.hash_count} is not a power of two")
+        if hash_pos + self.hash_count * 16 > len(self.data):
+            raise MpqError("hash table runs past end of file")
 
         self.sector_size = 512 << self.sector_shift
 

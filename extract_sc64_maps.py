@@ -444,6 +444,17 @@ def _sectorize(data: bytes, sector_size: int) -> bytes:
     positions = [4 * (len(sectors) + 1)]
     for sector in sectors:
         positions.append(positions[-1] + len(sector))
+    # StormLib treats a file as corrupt if any sector's *stored* length exceeds
+    # the archive's sector size (SBaseCommon.cpp:1345-1351). Storing sectors
+    # verbatim lands exactly on that limit with nothing to spare, so a future
+    # change that prefixes a compression byte to an incompressible sector would
+    # push it one byte over and silently produce unreadable maps.
+    oversized = [i for i, s in enumerate(sectors) if len(s) > sector_size]
+    if oversized:
+        raise ValueError(
+            f"sector {oversized[0]} is {len(sectors[oversized[0]])} bytes, "
+            f"over the {sector_size}-byte limit StormLib enforces")
+
     table = struct.pack(f"<{len(positions)}I", *positions)
     return table + b"".join(sectors)
 

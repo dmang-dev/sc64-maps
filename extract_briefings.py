@@ -54,8 +54,16 @@ from extract_sc64_maps import (
 
 BRIEFING_TO_MAP_OFFSET = 8
 
-TAG_RE = re.compile(r"<([A-Za-z0-9_]+)>")
+# A tag is normally "<NAME>". 007/025 holds one "<PORT12" whose ">" was never
+# written, so a name terminated by CR, LF or the next "<" is accepted too --
+# requiring the ">" drops that tag and the dialogue after it silently inherits
+# the previous speaker's portrait.
+TAG_RE = re.compile(r"<([A-Za-z0-9_]+)(>|(?=[\r\n<]))")
 PORT_RE = re.compile(r"^PORT(\d*)$")
+
+# 27 of the 96 scripts are byte-identical 58-byte placeholders that pair with
+# the 27 melee maps. They carry no dialogue, just this marker.
+STUB_MARKER = b"Blank BRIEFING"
 
 
 @dataclass
@@ -75,6 +83,7 @@ class Briefing:
     objectives: list[str] = field(default_factory=list)
     transmissions: list[Transmission] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    is_stub: bool = False       # unwritten placeholder, not a real briefing
 
     @property
     def portraits(self) -> list[int]:
@@ -93,13 +102,15 @@ def tokenize(text: str):
     """
     pos = 0
     pending_tag = None
+    pending_closed = True
     for match in TAG_RE.finditer(text):
         chunk = text[pos:match.start()]
         if chunk.strip() or pending_tag is not None:
-            yield pending_tag, _block_lines(chunk)
+            yield pending_tag, _block_lines(chunk), pending_closed
         pending_tag = match.group(1)
+        pending_closed = match.group(2) == ">"
         pos = match.end()
-    yield pending_tag, _block_lines(text[pos:])
+    yield pending_tag, _block_lines(text[pos:]), pending_closed
 
 
 def _block_lines(chunk: str) -> list[str]:
@@ -125,11 +136,13 @@ def parse_briefing(bolt_path: str, raw: bytes) -> Briefing:
     portrait: int | None = None
     seen_objective = False
 
-    for tag, lines in tokenize(text):
+    for tag, lines, closed in tokenize(text):
         if tag is None:
             if lines:
                 briefing.warnings.append(f"{len(lines)} line(s) before any tag")
             continue
+        if not closed:
+            briefing.warnings.append(f"<{tag} is missing its '>'; treated as a tag")
 
         port = PORT_RE.match(tag)
         if port:
@@ -227,6 +240,7 @@ def collect(archive: BoltArchive, verbose: bool = False):
     for index in sorted(scripts):
         path, raw = scripts[index]
         briefing = parse_briefing(path, raw)
+        briefing.is_stub = STUB_MARKER in raw
         paired = maps.get(index + BRIEFING_TO_MAP_OFFSET)
         if paired:
             briefing.map_path, info = paired
@@ -345,11 +359,15 @@ def main(argv=None) -> int:
             ports += ",..."
         print(f"{briefing.bolt_path:9} {briefing.map_path or '-':9} "
               f"{len(briefing.objectives):3} {len(briefing.transmissions):4} "
-              f"{ports:11}  {briefing.map_name}")
+              f"{ports:11}  {briefing.map_name}"
+              f"{'   [placeholder]' if briefing.is_stub else ''}")
 
-    total = sum(len(b.transmissions) for b, _ in briefings)
+    real = [b for b, _ in briefings if not b.is_stub]
+    stubs = len(briefings) - len(real)
+    total = sum(len(b.transmissions) for b in real)
     flagged = [b for b, _ in briefings if b.warnings]
-    print(f"\n{len(briefings)} briefings, {total} transmissions")
+    print(f"\n{len(briefings)} briefings: {len(real)} written "
+          f"({total} transmissions), {stubs} unwritten placeholders")
     if flagged:
         print(f"{len(flagged)} with parser notes:")
         for briefing in flagged:
