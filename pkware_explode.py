@@ -15,7 +15,8 @@ SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                    "reference", "StormLib", "src", "pklib", "explode.c")
 
 def _tables():
-    txt = open(SRC, 'r', encoding='latin1').read()
+    with open(SRC, "r", encoding="latin1") as fh:
+        txt = fh.read()
     out = {}
     for name in ("DistBits", "DistCode", "ExLenBits", "LenBase", "LenBits",
                  "LenCode", "ChBitsAsc", "ChCodeAsc"):
