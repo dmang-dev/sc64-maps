@@ -98,6 +98,61 @@ def find_rom(explicit: str | None) -> str | None:
     return roms[0] if roms else None
 
 
+def make_solo_variants(maps_dir: str, out_dir: str) -> int:
+    """Write a single-player variant of every co-operative map.
+
+    A handful of the missions expect two humans. Under Use Map Settings the
+    unfilled slot never spawns its hero, and a "hero must survive" trigger
+    ends the game seconds in -- Resurrection IV is the obvious case. Folding
+    the extra slots into the first makes them reachable alone, at the cost of
+    handing you both armies.
+    """
+    from merge_players import computer_slots, human_slots, make_solo
+    from extract_sc64_maps import build_map_file, looks_like_chk
+    from verify_maps import MpqReader
+
+    made = 0
+    for pattern in ("*.scm", "*.scx"):
+        for path in sorted(glob.glob(os.path.join(maps_dir, pattern))):
+            try:
+                chk = MpqReader(path).read("staredit\\scenario.chk")
+            except Exception:
+                continue
+            if not chk or not looks_like_chk(chk):
+                continue
+            if len(human_slots(chk)) < 2:
+                continue
+            # A melee map with several human slots is not a co-op mission --
+            # you fill the other slots with computer opponents and play it as
+            # designed. Merging there would just hand one player every
+            # starting base. What marks a genuine co-op mission is that the
+            # second human is *scripted*: its slot appears in trigger
+            # conditions, actions or the executed-for-player array. Requiring
+            # a computer slot too keeps the result launchable, since Use Map
+            # Settings refuses a map with no opponent.
+            if not computer_slots(chk):
+                continue
+            result = make_solo(chk)
+            if not result:
+                continue
+            merged, stats = result
+            if stats["trig"] == 0 and stats["mbrf"] == 0:
+                continue
+            if not looks_like_chk(merged):
+                print(f"  ! {os.path.basename(path)}: rewrite was malformed; "
+                      f"skipped", file=sys.stderr)
+                continue
+            os.makedirs(out_dir, exist_ok=True)
+            stem, ext = os.path.splitext(os.path.basename(path))
+            with open(os.path.join(out_dir, f"{stem} (solo){ext}"), "wb") as fh:
+                fh.write(build_map_file(merged))
+            made += 1
+            print(f"  {stem}: merged player(s) "
+                  f"{', '.join(str(p) for p in stats['merged'])} into 1 "
+                  f"({stats['units']} units, {stats['trig']} trigger refs)")
+    return made
+
+
 def step(number: int, total: int, text: str) -> None:
     print(f"\n[{number}/{total}] {text}")
 
@@ -120,6 +175,9 @@ def main(argv=None) -> int:
                         help="where to write the readable briefing text")
     parser.add_argument("--no-briefings", action="store_true",
                         help="do not compile briefings into the maps")
+    parser.add_argument("--no-solo", action="store_true",
+                        help="do not make single-player variants of the "
+                             "two-player co-op maps")
     parser.add_argument("--install", action="store_true",
                         help="also copy the maps into StarCraft's Maps folder")
     parser.add_argument("--starcraft", help="StarCraft install directory")
@@ -198,9 +256,11 @@ def main(argv=None) -> int:
     if args.list:
         return ex.main([rom, "--list"])
 
-    total = 4 if args.install else 3
+    total = 3 + (0 if args.no_solo else 1) + (1 if args.install else 0)
+    n = 0
 
-    step(1, total, "Extracting maps"
+    n += 1
+    step(n, total, "Extracting maps"
          + ("" if args.no_briefings else " with briefings compiled in"))
     argv_maps = [rom, "-o", args.out]
     if not args.no_briefings:
@@ -209,17 +269,32 @@ def main(argv=None) -> int:
     if rc:
         return rc
 
-    step(2, total, "Extracting the briefings as readable text")
+    n += 1
+    step(n, total, "Extracting the briefings as readable text")
     rc = eb.main([rom, "-o", args.briefings_dir])
     if rc:
         return rc
 
-    step(3, total, "Checking the maps are loadable")
+    solo_dir = os.path.join(args.out, "solo")
+    if not args.no_solo:
+        n += 1
+        step(n, total, "Making co-op maps playable alone")
+        made = make_solo_variants(args.out, solo_dir)
+        print(f"wrote {made} solo variant(s) to {solo_dir}" if made
+              else "no co-op maps found; nothing to do")
+
+    n += 1
+    step(n, total, "Checking the maps are loadable")
     rc = verify_maps.main([args.out])
     if rc:
         print("\nSome maps failed verification -- do not install these.",
               file=sys.stderr)
         return rc
+    if not args.no_solo and os.path.isdir(solo_dir) and os.listdir(solo_dir):
+        rc = verify_maps.main([solo_dir])
+        if rc:
+            print("\nSolo variants failed verification.", file=sys.stderr)
+            return rc
 
     if args.install:
         step(4, total, "Copying into StarCraft")
@@ -239,6 +314,18 @@ def main(argv=None) -> int:
                 shutil.copy2(path, dest)
                 copied += 1
         print(f"copied {copied} maps to {dest}")
+        # Solo variants go in their own subfolder so the map list is not
+        # cluttered with two entries per co-op mission.
+        if os.path.isdir(solo_dir):
+            solo_dest = os.path.join(dest, "solo")
+            os.makedirs(solo_dest, exist_ok=True)
+            solo_copied = 0
+            for pattern in ("*.scm", "*.scx"):
+                for path in glob.glob(os.path.join(solo_dir, pattern)):
+                    shutil.copy2(path, solo_dest)
+                    solo_copied += 1
+            if solo_copied:
+                print(f"copied {solo_copied} solo variant(s) to {solo_dest}")
 
     print("\nDone.")
     print(f"  maps      : {os.path.abspath(args.out)}")

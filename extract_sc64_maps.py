@@ -378,18 +378,28 @@ def parse_map(bolt_path: str, data: bytes) -> MapInfo:
 # "staredit\scenario.chk". We write format version 0, unencrypted.
 #
 # Files are laid out the way every real map does it: a sector offset table
-# followed by fixed-size sectors, with the MPQ_FILE_COMPRESS flag set. The
-# sectors themselves are stored verbatim. That is legal and universally
-# supported -- a reader compares each sector's stored length against its
-# uncompressed length and only runs the decompressor when the stored form is
-# actually shorter, which is the same path Storm takes for any sector that
-# failed to compress. Doing it this way avoids shipping a compressor while
-# still exercising the code path that every map in the wild uses.
+# followed by fixed-size sectors.
+#
+# Two storage modes, chosen by `implode=`:
+#
+#   implode=False (default)  MPQ_FILE_COMPRESS, every sector stored verbatim.
+#       Legal and universally supported -- a reader compares each sector's
+#       stored length against its uncompressed length and only runs the
+#       decompressor when the stored form is actually shorter, which is the
+#       same path Storm takes for any sector that failed to compress.
+#
+#   implode=True             MPQ_FILE_IMPLODE, sectors PKWARE-imploded by
+#       pkware_implode, which is a port of the same pklib that produced every
+#       compressed sector in every stock StarCraft map. An IMPLODE file carries
+#       NO compression mask byte: the whole sector is pklib data, header
+#       included. A sector that does not get strictly smaller is stored
+#       verbatim, which is exactly how a reader tells the two apart.
 
 MPQ_MAGIC = b"MPQ\x1a"
 MPQ_HEADER_SIZE = 32
 HASH_ENTRY_SIZE = 16
 BLOCK_ENTRY_SIZE = 16
+FILE_IMPLODE = 0x00000100
 FILE_COMPRESS = 0x00000200
 FILE_EXISTS = 0x80000000
 HASH_ENTRY_FREE = 0xFFFFFFFF
@@ -436,24 +446,43 @@ def _encrypt(words: list[int], key: int) -> bytes:
     return bytes(out)
 
 
-def _sectorize(data: bytes, sector_size: int) -> bytes:
+def _sectorize(data: bytes, sector_size: int, implode: bool = False) -> bytes:
     """Lay a file out as [sector offset table][sector 0][sector 1]...
 
-    Offsets are relative to the start of the file's data. Sectors are stored
-    verbatim, so each entry's length equals the amount of plain data it holds
-    and no reader will try to decompress it.
+    Offsets are relative to the start of the file's data. With implode=False
+    sectors are stored verbatim, so each entry's length equals the amount of
+    plain data it holds and no reader will try to decompress it.
+
+    With implode=True each sector is run through pkware_implode and kept only
+    if it came out strictly smaller; a sector stored at exactly its plain
+    length is what tells the reader to skip decompression, so "same size"
+    must fall back to verbatim or the file is unreadable.
     """
     sectors = [data[i:i + sector_size] for i in range(0, len(data), sector_size)]
     if not sectors:
         sectors = [b""]
+    if implode:
+        from pkware_implode import implode as _implode, CMP_BINARY
+        packed = []
+        for sector in sectors:
+            # An empty sector cannot be imploded: pklib emits 4 bytes and
+            # explode.c:487 rejects any stream of 4 bytes or fewer.
+            if not sector:
+                packed.append(sector)
+                continue
+            candidate = _implode(sector, CMP_BINARY)
+            packed.append(candidate if len(candidate) < len(sector) else sector)
+        sectors = packed
     positions = [4 * (len(sectors) + 1)]
     for sector in sectors:
         positions.append(positions[-1] + len(sector))
     # StormLib treats a file as corrupt if any sector's *stored* length exceeds
-    # the archive's sector size (SBaseCommon.cpp:1345-1351). Storing sectors
-    # verbatim lands exactly on that limit with nothing to spare, so a future
-    # change that prefixes a compression byte to an incompressible sector would
-    # push it one byte over and silently produce unreadable maps.
+    # the archive's sector size (SBaseCommon.cpp:1345-1351). A verbatim sector
+    # lands exactly on that limit with nothing to spare, which is why the
+    # implode path above falls back to verbatim instead of keeping a candidate
+    # that grew -- and why MPQ_FILE_IMPLODE, which prefixes no compression mask
+    # byte, is the right flag here. MPQ_FILE_COMPRESS would add that byte and
+    # push an incompressible sector one over the limit.
     oversized = [i for i, s in enumerate(sectors) if len(s) > sector_size]
     if oversized:
         raise ValueError(
@@ -464,21 +493,27 @@ def _sectorize(data: bytes, sector_size: int) -> bytes:
     return table + b"".join(sectors)
 
 
-def build_mpq(files: dict[str, bytes], hash_table_size: int = 16) -> bytes:
-    """Pack `files` (archive path -> bytes) into an MPQ v1 archive."""
+def build_mpq(files: dict[str, bytes], hash_table_size: int = 16,
+              implode: bool = False) -> bytes:
+    """Pack `files` (archive path -> bytes) into an MPQ v1 archive.
+
+    implode=True PKWARE-compresses the sectors and flags the files
+    MPQ_FILE_IMPLODE; the default stores them verbatim under
+    MPQ_FILE_COMPRESS.
+    """
     if hash_table_size & (hash_table_size - 1):
         raise ValueError("hash table size must be a power of two")
     if len(files) > hash_table_size // 2:
         raise ValueError("hash table too small for this many files")
 
     sector_size = 512 << SECTOR_SIZE_SHIFT
+    flags = FILE_EXISTS | (FILE_IMPLODE if implode else FILE_COMPRESS)
     block_table = []
     payload = bytearray()
     offset = MPQ_HEADER_SIZE
     for content in files.values():
-        stored = _sectorize(content, sector_size)
-        block_table.append((offset, len(stored), len(content),
-                            FILE_EXISTS | FILE_COMPRESS))
+        stored = _sectorize(content, sector_size, implode)
+        block_table.append((offset, len(stored), len(content), flags))
         payload += stored
         offset += len(stored)
 
@@ -528,12 +563,12 @@ def build_mpq(files: dict[str, bytes], hash_table_size: int = 16) -> bytes:
     return bytes(header + payload + hash_bytes + block_bytes)
 
 
-def build_map_file(chk: bytes) -> bytes:
+def build_map_file(chk: bytes, implode: bool = False) -> bytes:
     listfile = b"staredit\\scenario.chk\r\n"
     return build_mpq({
         "staredit\\scenario.chk": chk,
         "(listfile)": listfile,
-    })
+    }, implode=implode)
 
 
 # --------------------------------------------------------------------------
@@ -592,6 +627,10 @@ def main(argv=None) -> int:
     parser.add_argument("--force-briefings", action="store_true",
                         help="with --briefings, also overwrite the 12 maps that "
                              "already carry a PC-authored MBRF")
+    parser.add_argument("--implode", action="store_true",
+                        help="PKWARE-compress the MPQ sectors (MPQ_FILE_IMPLODE) "
+                             "the way every stock StarCraft map does, instead of "
+                             "storing them verbatim. Roughly quarters the map size.")
     parser.add_argument("--dump-all", metavar="DIR",
                         help="additionally dump every file in the BOLT archive")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -699,7 +738,7 @@ def main(argv=None) -> int:
         stem = f"{prefix} {safe_filename(info.name)}"
         dest = os.path.join(args.out, stem + info.extension)
         with open(dest, "wb") as fh:
-            fh.write(build_map_file(chk))
+            fh.write(build_map_file(chk, implode=args.implode))
         if args.chk:
             with open(os.path.join(args.out, stem + ".chk"), "wb") as fh:
                 fh.write(chk)

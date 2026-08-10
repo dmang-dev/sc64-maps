@@ -14,6 +14,9 @@ StarCraft tool ecosystem is built on), in particular:
     plain bytes; its stored length comes from the sector offset table
   * SFileReadFile.cpp:165 -- a sector is only decompressed when its stored
     length is *less* than its plain length; equal means stored verbatim
+  * SFileReadFile.cpp:176-189 -- MPQ_FILE_COMPRESS sectors carry a leading
+    compression mask byte and go through SCompDecompress; MPQ_FILE_IMPLODE
+    sectors carry no mask byte at all and go straight to SCompExplode
 
 Note: mpyq (a popular pure-Python MPQ reader) gets that last rule wrong -- it
 compares the stored sector length against every remaining byte in the file
@@ -39,6 +42,7 @@ from extract_sc64_maps import (
     HASH_FILE_KEY, HASH_TABLE_OFFSET, HASH_NAME_A, HASH_NAME_B,
     MPQ_MAGIC, HASH_ENTRY_FREE,
 )
+from pkware_explode import explode, ExplodeError
 
 MPQ_FILE_IMPLODE = 0x00000100
 MPQ_FILE_COMPRESS = 0x00000200
@@ -152,13 +156,26 @@ class MpqReader:
             plain_len = min(self.sector_size, left)
             sector = raw[positions[i]:positions[i + 1]]
             if len(sector) < plain_len:              # StormLib: strictly less
-                method = sector[0]
-                if method == 0x02:
-                    sector = zlib.decompress(sector[1:])
+                if flags & MPQ_FILE_IMPLODE:
+                    # No compression mask byte: the whole sector is PKWARE data.
+                    try:
+                        sector = explode(sector)
+                    except ExplodeError as exc:
+                        raise MpqError(f"{name!r} sector {i} failed to explode: {exc}")
+                    if len(sector) != plain_len:
+                        raise MpqError(
+                            f"{name!r} sector {i} exploded to {len(sector)} bytes, "
+                            f"expected {plain_len}")
                 else:
-                    raise MpqError(
-                        f"{name!r} sector {i} uses compression {method:#04x}, "
-                        f"which this verifier does not implement")
+                    method = sector[0]
+                    if method == 0x02:
+                        sector = zlib.decompress(sector[1:])
+                    elif method == 0x08:
+                        sector = explode(sector[1:])
+                    else:
+                        raise MpqError(
+                            f"{name!r} sector {i} uses compression {method:#04x}, "
+                            f"which this verifier does not implement")
             elif len(sector) != plain_len:
                 raise MpqError(
                     f"{name!r} sector {i} is {len(sector)} bytes, expected {plain_len}")
@@ -204,7 +221,7 @@ def main(argv=None) -> int:
             if args.verbose:
                 print(f"  ok  {base}  {info.width}x{info.height} "
                       f"{info.tileset_name} {info.edition}")
-        except (MpqError, struct.error, zlib.error, ValueError) as exc:
+        except (MpqError, struct.error, zlib.error, ExplodeError, ValueError) as exc:
             failures.append((base, exc))
 
     print(f"\n{passed}/{len(paths)} maps verified")
