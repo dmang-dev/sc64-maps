@@ -1,0 +1,27 @@
+* text=auto eol=lf
+
+# Keep the vendored MSVC project files in their native form
+*.sln        text eol=crlf
+*.vcxproj    text eol=crlf
+*.vcproj     text eol=crlf
+*.filters    text eol=crlf
+*.bat        text eol=crlf
+
+# Binary
+*.n64   binary
+*.z64   binary
+*.v64   binary
+*.scm   binary
+*.scx   binary
+*.chk   binary
+*.dll   binary
+*.lib   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.pdf   binary
+*.zip   binary
+*.xlsx  binary
+*.xls   binary
+*.docx  binary

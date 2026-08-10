@@ -1,0 +1,46 @@
+# ---------------------------------------------------------------------------
+# Never commit game data. The ROM and everything derived from it is Blizzard's
+# copyrighted work -- this repository ships tools only.
+# ---------------------------------------------------------------------------
+*.n64
+*.z64
+*.v64
+*.rom
+
+*.scm
+*.scx
+*.chk
+
+maps/
+bolt-out/
+out/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Build output from the vendored C++ projects
+reference/*/build/
+reference/*/build-*/
+reference/*/x64/
+reference/*/Debug/
+reference/*/Release/
+*.obj
+*.o
+*.lib
+*.a
+*.exe
+*.pdb
+*.ilk
+
+# Tooling / OS
+.rstk/
+**/.sf/
+**/.sfdx/
+**/node_modules/
+.DS_Store
+Thumbs.db
+desktop.ini

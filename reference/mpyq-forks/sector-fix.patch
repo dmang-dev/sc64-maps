@@ -1,0 +1,22 @@
+--- a/mpyq.py
++++ b/mpyq.py
+@@ -224,7 +224,7 @@
+                 # File consists of many sectors. They all need to be
+                 # decompressed separately and united.
+                 sector_size = 512 << self.header['sector_size_shift']
+-                sectors = block_entry.size // sector_size + 1
++                sectors = (block_entry.size + sector_size - 1) // sector_size or 1
+                 if block_entry.flags & MPQ_FILE_SECTOR_CRC:
+                     crc = True
+                     sectors += 1
+@@ -236,8 +236,9 @@
+                 sector_bytes_left = block_entry.size
+                 for i in range(len(positions) - (2 if crc else 1)):
+                     sector = file_data[positions[i]:positions[i+1]]
++                    plain_len = min(sector_size, sector_bytes_left)
+                     if (block_entry.flags & MPQ_FILE_COMPRESS and
+-                        (force_decompress or sector_bytes_left > len(sector))):
++                        (force_decompress or plain_len > len(sector))):
+                         sector = decompress(sector)
+ 
+                     sector_bytes_left -= len(sector)
