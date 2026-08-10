@@ -68,8 +68,45 @@ do not travel with them:
 python extract_briefings.py "StarCraft 64 (USA).n64" -o briefings/
 ```
 
+Or put the briefings *inside* the maps, so they play when you launch the
+mission instead of sitting in a text file next to it:
+
+```bash
+python extract_sc64_maps.py "StarCraft 64 (USA).n64" --briefings -o maps/
+```
+
 Useful flags: `--chk` also writes the raw scenario chunks, `--dump-all DIR`
 dumps all 2111 files in the BOLT archive, `-v` reports per-entry errors.
+
+### Briefings inside the maps
+
+`--briefings` compiles each N64 briefing script into a PC `MBRF` section and
+injects it into that map, replacing the zero-length one the ROM ships. The same
+converter is also a standalone tool with a fuller report and a dry-run mode:
+
+```bash
+python briefing_to_mbrf.py "StarCraft 64 (USA).n64" --dry-run
+python briefing_to_mbrf.py "StarCraft 64 (USA).n64" -o maps/
+```
+
+58 of the 96 maps get a briefing. The other 38 are left exactly as they were:
+27 pair with unwritten placeholder scripts (the melee maps), and 11 already
+carry a briefing Blizzard authored, which is the only PC-side briefing data in
+the ROM and is not worth overwriting — `--force` (or `--force-briefings` on
+`extract_sc64_maps.py`) does so anyway.
+
+Five portraits map to unit ids that mean different units in Brood War than in
+StarCraft — 88 is Artanis in one and Merc Biker in the other — so a briefing
+using them has to land in a `.scx`. The converter checks that against the map's
+own version stamp and refuses rather than writing a wrong face;
+`--allow-edition-mismatch` overrides. In this ROM nothing conflicts.
+
+The N64 scripts carry no timing at all, so line durations are synthesised from
+a fit against Blizzard's own recorded `.wav` lengths for the same sentences
+(`t = 73.08 × characters + 517` ms). Everything else — the action sequence,
+portrait-slot handling, the closing screen — is copied from genuine campaign
+and stock-map briefings rather than invented; see the module header and
+[docs/FORMAT.md](docs/FORMAT.md).
 
 Any of the three N64 dump formats work (`.z64`, `.v64`, `.n64`) — the header
 magic is what decides, not the extension. The common `StarCraft 64 (USA).n64`
@@ -272,6 +309,7 @@ in common. Terrain is not comparable at different dimensions.
 ```
 extract_sc64_maps.py        the tool: ROM -> playable maps
 extract_briefings.py        ROM -> mission briefings as readable text
+briefing_to_mbrf.py         briefing scripts -> MBRF sections inside the maps
 verify_maps.py              StormLib-faithful validator for the output
 compare_with_stock.py       diff the output against an installed PC StarCraft
 pkware_explode.py           PKWARE DCL explode, for reading genuine maps

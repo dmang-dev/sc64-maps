@@ -585,6 +585,13 @@ def main(argv=None) -> int:
                         help="list the maps and exit without writing anything")
     parser.add_argument("--chk", action="store_true",
                         help="also write the raw .chk alongside each map")
+    parser.add_argument("--briefings", action="store_true",
+                        help="build an MBRF section from each map's N64 briefing "
+                             "script and inject it, so the briefing plays in game "
+                             "(see briefing_to_mbrf.py for the standalone tool)")
+    parser.add_argument("--force-briefings", action="store_true",
+                        help="with --briefings, also overwrite the 12 maps that "
+                             "already carry a PC-authored MBRF")
     parser.add_argument("--dump-all", metavar="DIR",
                         help="additionally dump every file in the BOLT archive")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -645,8 +652,49 @@ def main(argv=None) -> int:
         return 0
 
     os.makedirs(args.out, exist_ok=True)
-    written = 0
+    briefings = {}
+    if args.briefings:
+        # Imported here, not at module scope: extract_briefings imports us.
+        from extract_briefings import (BRIEFING_TO_MAP_OFFSET, STUB_MARKER,
+                                       parse_briefing)
+        for entry in archive.entries():
+            directory, _, index_hex = entry.path.partition("/")
+            if directory != "007":
+                continue
+            try:
+                index = int(index_hex, 16)
+                if archive.read(entry, limit=4)[:1] != b"<":
+                    continue
+                raw = archive.read(entry)
+            except (ValueError, IndexError):
+                continue
+            briefing = parse_briefing(entry.path, raw)
+            briefing.is_stub = STUB_MARKER in raw
+            briefings[f"008/{index + BRIEFING_TO_MAP_OFFSET:03X}"] = briefing
+        print(f"briefings: {len(briefings)} scripts paired with maps")
+        import briefing_to_mbrf
+
+    written = injected = 0
     for info, chk in maps:
+        briefing = briefings.get(info.bolt_path)
+        if briefing is not None:
+            build = None
+            try:
+                new, build = briefing_to_mbrf.inject(
+                    chk, briefing, info, force=args.force_briefings)
+            except (ValueError, KeyError) as exc:
+                print(f"  ! {info.bolt_path}: briefing not injected: {exc}",
+                      file=sys.stderr)
+                new = chk
+            if new is not chk:
+                chk = new
+                injected += 1
+            elif args.verbose and build is not None:
+                # `build` stays None when inject() raised, so guard it -- the
+                # earlier form raised UnboundLocalError under -v on any map
+                # whose injection failed, masking the real error.
+                for warning in build.warnings:
+                    print(f"  - {info.bolt_path}: {warning}")
         prefix = info.bolt_path.replace("/", "-")
         stem = f"{prefix} {safe_filename(info.name)}"
         dest = os.path.join(args.out, stem + info.extension)
@@ -657,6 +705,8 @@ def main(argv=None) -> int:
                 fh.write(chk)
         written += 1
 
+    if args.briefings:
+        print(f"injected an MBRF briefing into {injected} maps")
     print(f"\nwrote {written} maps to {os.path.abspath(args.out)}")
     print("Copy them into your StarCraft Maps\\ folder to play.")
     return 0
