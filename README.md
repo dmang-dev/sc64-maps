@@ -168,12 +168,35 @@ independent rewrite in `reference/bolt_extract_all.py` find the same 96
 scenarios, and every one of the archive's 2111 entries decompresses to exactly
 the length its BOLT header declares.
 
+## Do they match the originals?
+
+Where a direct comparison is possible, yes — closely.
+
+```bash
+python compare_with_stock.py "StarCraft 64 (USA).n64" --stock "C:/path/to/StarCraft"
+```
+
+This reads the maps installed with PC StarCraft (encrypted and
+PKWARE-imploded, unlike ours) and diffs them against the ROM's CHKs. Campaign
+missions are out of reach — a modern install keeps them in the CASC store
+under `Data\`, not in the legacy MPQs — so the overlap is the 22 melee and
+scenario maps.
+
+Of those 22, **18 have byte-identical terrain**, and the remaining four differ
+by between 2 and 192 tiles out of ~16000. In the unit data, across 1735
+differing records the *only* field that ever changes is the 4-byte serial
+(class instance id); position, type, owner, hit points, resources, flags and
+unit links are identical in every record. Triggers were rewritten, which is
+what you would expect from a console port.
+
 ## Layout
 
 ```
 extract_sc64_maps.py        the tool: ROM -> playable maps
 extract_briefings.py        ROM -> mission briefings as readable text
 verify_maps.py              StormLib-faithful validator for the output
+compare_with_stock.py       diff the output against an installed PC StarCraft
+pkware_explode.py           PKWARE DCL explode, for reading genuine maps
 docs/FORMAT.md              BOLT, CHK, MPQ and briefing-script notes
 reference/
   README.md                 provenance and licensing

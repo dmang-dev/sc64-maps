@@ -83,6 +83,12 @@ data-losing edge cases).
   places we differ are legal *and* precedented in shipped content — see
   `docs/FORMAT.md` §4.2.
 
+- **Diffed against the stock PC maps.** Of the 22 N64 scenarios that also ship
+  with PC StarCraft, 18 have byte-identical terrain, and the only unit field
+  that ever differs is the serial (class instance id) — position, type, owner,
+  hit points, resources, flags and links match in every record. See
+  `docs/FORMAT.md` §4.4. Campaign missions are unreachable: they live in the
+  CASC store, not the legacy MPQs.
 - **Opened in Blizzard's own editor.** `008-00A T1) Wasteland.scm` loads in
   StarEdit with no errors — the retail `storm.dll` path, not a
   reimplementation. Terrain, 49 units, player types, custom force names

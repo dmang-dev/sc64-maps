@@ -238,6 +238,57 @@ Two caveats worth knowing:
   miscount files whose size is an exact multiple of the sector size. StormLib
   uses `((size - 1) / sector_size) + 1`, which this project matches.
 
+## 4.4 How the N64 maps compare to the stock PC maps
+
+`compare_with_stock.py` reads the maps installed with PC StarCraft — which are
+encrypted and PKWARE-imploded, unlike the ones this project writes — and diffs
+their `scenario.chk` against the CHKs taken straight from the ROM, matching on
+scenario name.
+
+**Campaign missions cannot be compared.** A modern install keeps them in the
+CASC store under `Data\`, not in the legacy MPQs; `Maps\campaign\` holds only
+the five *Enslavers* bonus maps, none of which are in StarCraft 64. Comparison
+is therefore limited to the melee and scenario maps under `Maps\`, which covers
+22 of the 96 N64 scenarios.
+
+Of those 22:
+
+- **18 have byte-identical terrain.** The `MTXM` section matches exactly.
+- **The other 4 differ by a handful of tiles** — *Triumvirate* 2 of 16384
+  (0.01%), *Volcanis* 4 of 9216 (0.04%), *Dire Straits* 66 (0.40%), *Old
+  Faithful* 192 (1.17%). Deliberate small edits, not corruption.
+- **Unit data differs in exactly one field.** Across 1735 differing records,
+  the only field that ever changes is the 4-byte **serial** (class instance id)
+  at offset 0. Position, type, owner, hit points, shields, energy, resources,
+  hangar contents, state flags and unit links are identical in every single
+  record. A serial is an arbitrary per-map counter with no gameplay meaning, so
+  the unit layouts are effectively the same maps with renumbered instances.
+- **Triggers were rewritten.** Trigger counts usually match (3 vs 3) but the
+  bytes differ, which is expected — the console port re-did victory conditions
+  and messaging.
+
+That is a strong fidelity result for the extractor: where a direct comparison
+is possible, the recovered data matches Blizzard's originals down to the byte
+in most sections, and the differences that remain are ones Mass Media actually
+made rather than artifacts of extraction.
+
+Eight further N64 melee maps have a stock counterpart under a slightly
+different name (*Lost Temple* vs *The Lost Temple*, *Tarsonis Orbital* vs
+*Tarsonis Orbital Platform*, *Opposing Cities* vs *Opposing City States '98*)
+or a different revision, and are not auto-matched.
+
+### Reading genuine maps
+
+`compare_with_stock.py` reads 277 of 323 stock maps. All 46 failures sit in
+third-party `ladder\*` folders and are map-protector artifacts; **every
+Blizzard-shipped map reads** — 44/44 in the root, 91/91 under `BroodWar`, 5/5
+under `campaign`. Two things are required that our own maps never need:
+block-entry decryption, and PKWARE DCL explode (`pkware_explode.py`, whose
+Huffman tables are parsed out of the vendored StormLib source rather than
+transcribed). Note that an `MPQ_FILE_IMPLODE` file carries **no** compression
+mask byte — the whole sector is PKWARE data — while `MPQ_FILE_COMPRESS`
+prefixes one.
+
 ## 5. Mission briefings (BOLT directory 007)
 
 PC StarCraft stores campaign briefings inside the map, as triggers in the CHK's
