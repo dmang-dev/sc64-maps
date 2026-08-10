@@ -81,33 +81,46 @@ def replace_section(chk: bytes, tag: bytes, payload: bytes) -> bytes:
     return chk[:start] + payload + chk[start + length:]
 
 
-def _remap_records(payload: bytes, donor: int, into: int) -> tuple[bytes, int]:
-    """Remap player references inside a TRIG or MBRF payload."""
+def _remap_records(payload: bytes, donor: int, into: int,
+                   is_briefing: bool = False) -> tuple[bytes, int]:
+    """Remap player references inside a TRIG or MBRF payload.
+
+    `is_briefing` matters more than it looks. In TRIG, an action's group1 and
+    group2 fields hold player groups, so they must be remapped. In MBRF they
+    do NOT: group1 is the *portrait slot* (0-3) for ShowPortrait,
+    HidePortrait, DisplaySpeakingPortrait and Transmission, and is unused
+    otherwise. Remapping it there silently rewrites every portrait in slot N
+    to slot N-1 -- merging player 2 into player 1 collapses slot 1 onto slot 0
+    and the briefing loses a portrait frame. MBRF conditions are likewise
+    always the single "always" opcode with a zero body, so only the
+    executed-for-player array carries a real player reference.
+    """
     data = bytearray(payload)
     changed = 0
     for record in range(len(data) // RECORD_SIZE):
         base = record * RECORD_SIZE
 
-        # Conditions: the group/player field is a u32 at +4.
-        for i in range(COND_COUNT):
-            off = base + i * COND_SIZE
-            if data[off + 15] == 0:              # condition type 0 = unused
-                continue
-            if struct.unpack_from("<I", data, off + 4)[0] == donor:
-                struct.pack_into("<I", data, off + 4, into)
-                changed += 1
-
-        # Actions: group1 at +16 and group2 at +20 both hold player groups.
-        for i in range(ACT_COUNT):
-            off = base + ACT_BASE + i * ACT_SIZE
-            if data[off + 26] == 0:              # action type 0 = unused
-                break
-            for field in (16, 20):
-                if struct.unpack_from("<I", data, off + field)[0] == donor:
-                    struct.pack_into("<I", data, off + field, into)
+        if not is_briefing:
+            # Conditions: the group/player field is a u32 at +4.
+            for i in range(COND_COUNT):
+                off = base + i * COND_SIZE
+                if data[off + 15] == 0:          # condition type 0 = unused
+                    continue
+                if struct.unpack_from("<I", data, off + 4)[0] == donor:
+                    struct.pack_into("<I", data, off + 4, into)
                     changed += 1
 
-        # "Executed for player": one byte per player/force slot.
+            # Actions: group1 at +16 and group2 at +20 hold player groups.
+            for i in range(ACT_COUNT):
+                off = base + ACT_BASE + i * ACT_SIZE
+                if data[off + 26] == 0:          # action type 0 = unused
+                    break
+                for field in (16, 20):
+                    if struct.unpack_from("<I", data, off + field)[0] == donor:
+                        struct.pack_into("<I", data, off + field, into)
+                        changed += 1
+
+        # "Executed for player": one byte per player/force slot. Real in both.
         exec_off = base + EXEC_BASE
         if data[exec_off + donor]:
             data[exec_off + donor] = 0
@@ -145,7 +158,8 @@ def merge(chk: bytes, donor: int, into: int) -> tuple[bytes, dict]:
     # Triggers and briefing triggers
     for tag, key in ((b"TRIG", "trig"), (b"MBRF", "mbrf")):
         if tag in payloads and payloads[tag]:
-            data, n = _remap_records(payloads[tag], donor, into)
+            data, n = _remap_records(payloads[tag], donor, into,
+                                     is_briefing=(tag == b"MBRF"))
             stats[key] = n
             chk = replace_section(chk, tag, data)
 
