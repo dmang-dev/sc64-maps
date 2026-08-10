@@ -143,9 +143,11 @@ precedented in shipped content: verbatim sectors occur in Blizzard's own
 ship an unencrypted `scenario.chk`. All 96 also pass a full emulation of
 StormLib's acceptance checks. See [docs/FORMAT.md](docs/FORMAT.md) §4.2.
 
-Still worth doing: **load one in the actual game.** Every verdict above comes
-from the reference implementation and from real-world precedent, not from
-retail `Storm.dll` itself.
+And confirmed against Blizzard's own tooling: `008-00A T1) Wasteland.scm` opens
+in **StarEdit** with no errors, exercising the retail `storm.dll` load path
+rather than a reimplementation. Terrain, the 49 placed units, player types,
+custom force names resolved out of the string table (*Colonial Militia*,
+*Unidentified Creatures*) and the trigger list all read correctly.
 
 A note if you try to check the output with **mpyq**: it will fail, and the maps
 are fine — the bug is in mpyq. It decides whether a sector is compressed by

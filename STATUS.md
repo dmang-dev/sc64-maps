@@ -83,11 +83,17 @@ data-losing edge cases).
   places we differ are legal *and* precedented in shipped content — see
   `docs/FORMAT.md` §4.2.
 
+- **Opened in Blizzard's own editor.** `008-00A T1) Wasteland.scm` loads in
+  StarEdit with no errors — the retail `storm.dll` path, not a
+  reimplementation. Terrain, 49 units, player types, custom force names
+  resolved from the string table, and the trigger list all read correctly.
+  This is what finally settles the MPQ-format question.
+
 ### Not verified
 
-**No map has been loaded in StarCraft itself.** Still the one real gap. Every
-verdict comes from the reference implementation and from real-world precedent,
-not from retail `Storm.dll`. Try one map in StarEdit or the game.
+Playing a map through to completion in `StarCraft.exe`. Loading is confirmed
+by StarEdit, and gameplay uses the same CHK data, so the remaining risk is
+about mission design (N64 balance tweaks, unit counts) rather than file format.
 
 ## Design decision worth understanding
 
@@ -129,9 +135,7 @@ implode universally, that is worth reconsidering.
 
 ## Open items
 
-1. **Load a map in StarCraft.** The outstanding verification gap, and now the
-   only one. Highest value for the least effort.
-2. **Converting N64 briefings into PC `MBRF` triggers.** Feasible and fully
+1. **Converting N64 briefings into PC `MBRF` triggers.** Feasible and fully
    specified — `MBRF` records are byte-identical to `TRIG` (2400 bytes), the
    action opcodes and field layout are known, and the string budget is a
    non-issue (largest resulting `STR` is 18 KB against a 64 KB ceiling). Two
@@ -139,6 +143,8 @@ implode universally, that is worth reconsidering.
    every duration must be synthesised; and five portraits map to unit ids that
    only exist in Brood War, so any briefing using ids 17–21 must be written as
    a `.scx`. Validate a converter by regenerating the 10 surviving originals.
+2. **Play a map through in `StarCraft.exe`.** Loading is settled; this is about
+   mission design rather than file format.
 3. **Directories 003 and 004** (61 establishing-shot scripts, 13 slideshow
    scripts) are documented but not extracted. Different markup from 007, and
    003 is cp1252 rather than ASCII.

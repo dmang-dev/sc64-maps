@@ -191,6 +191,11 @@ Three findings settle the design question:
   offset table monotonicity, `SOT[0] == table length`, `SOT[-1] == packed
   size`, no oversized sector, and byte-exact read-back of both members.
 
+Confirmed empirically as well: `008-00A T1) Wasteland.scm` opens in **StarEdit**
+with no errors. That runs Blizzard's own `storm.dll`, so it exercises the retail
+MPQ and CHK load paths rather than a reimplementation — terrain, units, player
+types, `FORC` names resolved through `STR`, and `TRIG` all read correctly.
+
 Two quirks are worth knowing before anyone "fixes" them:
 
 - Our `dwCmpSize` is slightly **larger** than `dwFileSize` (the sector offset
