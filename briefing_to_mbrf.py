@@ -578,12 +578,102 @@ def mbrf_length(chk: bytes) -> int:
     return length
 
 
+def mbrf_is_unusable(chk: bytes) -> bool:
+    """True if an MBRF has timed actions but not one carries a duration.
+
+    Such a briefing cannot play: every card is dismissed the instant it
+    appears, so the whole thing flushes at once. In this ROM exactly one
+    section is like that.
+    """
+    timed = zeroed = 0
+    for tag, payload in chk_sections(chk):
+        if tag != b"MBRF":
+            continue
+        for record in range(len(payload) // RECORD_SIZE):
+            base = record * RECORD_SIZE + ACT_BASE
+            for slot in range(ACT_COUNT):
+                off = base + slot * ACT_SIZE
+                action_type = payload[off + 26]
+                if action_type == ACT_NONE:
+                    break
+                if action_type in (ACT_WAIT, ACT_PLAY_WAV, ACT_DISPLAY_TEXT,
+                                   ACT_SPEAKING_PORTRAIT, ACT_TRANSMISSION):
+                    timed += 1
+                    if struct.unpack_from("<I", payload, off + 12)[0] == 0:
+                        zeroed += 1
+    return timed > 0 and timed == zeroed
+
+
+def patch_zero_durations(chk: bytes) -> tuple[bytes, int]:
+    """Fill in missing durations in an existing MBRF, changing nothing else.
+
+    One briefing in the ROM -- Resurrection IV, 008/065 -- ships 24 timed
+    actions whose duration is zero, so on PC the whole thing flushes at once
+    with nothing readable. The N64 engine paced briefings from the dir-007
+    scripts and evidently never consumed these fields.
+
+    Rewriting the section from the script would work but would throw away Mass
+    Media's own authoring: their strings, their portrait choices, their action
+    order. Patching only the zero durations keeps all of that and fixes the one
+    thing that is actually broken.
+
+    A zero-duration DisplayText gets a reading time from its own string; a
+    zero-duration Wait or SpeakingPortrait inherits the DisplayText it follows,
+    which is what actually holds the card on screen.
+
+    Returns (new_chk, actions_patched).
+    """
+    # Locate the effective MBRF -- the last one, since later sections win.
+    offset = size = None
+    pos = 0
+    while pos + 8 <= len(chk):
+        tag = chk[pos:pos + 4]
+        length = struct.unpack_from("<i", chk, pos + 4)[0]
+        if tag == b"MBRF":
+            offset, size = pos, length
+        pos += 8 + length
+    if offset is None or not size:
+        return chk, 0
+
+    mbrf = bytearray(chk[offset + 8:offset + 8 + size])
+    strings = StringTable.from_chk(chk)
+
+    patched = 0
+    last_ms = MS_MIN
+    for record in range(len(mbrf) // RECORD_SIZE):
+        base = record * RECORD_SIZE + ACT_BASE
+        for slot in range(ACT_COUNT):
+            off = base + slot * ACT_SIZE
+            action_type = mbrf[off + 26]
+            if action_type == 0:
+                break
+            if action_type not in (ACT_WAIT, ACT_DISPLAY_TEXT,
+                                   ACT_SPEAKING_PORTRAIT):
+                continue
+            if struct.unpack_from("<I", mbrf, off + 12)[0]:
+                continue                      # already timed; leave it alone
+            if action_type == ACT_DISPLAY_TEXT:
+                index = struct.unpack_from("<I", mbrf, off + 4)[0]
+                last_ms = estimate_duration(strings.get(index) or "")
+            struct.pack_into("<I", mbrf, off + 12, last_ms)
+            patched += 1
+
+    if not patched:
+        return chk, 0
+    return chk[:offset + 8] + bytes(mbrf) + chk[offset + 8 + size:], patched
+
+
 def inject(chk: bytes, briefing, map_info=None, *, force: bool = False,
-           allow_edition_mismatch: bool = False) -> tuple[bytes, MbrfBuild]:
+           allow_edition_mismatch: bool = False,
+           patch_timings: bool = False) -> tuple[bytes, MbrfBuild]:
     """Return (new_chk, build).  `new_chk is chk` when nothing was written.
 
     Refuses, unless `force`, to overwrite an MBRF that already has content --
-    those 12 sections are the only PC-authored briefing data in the ROM.
+    ten of those twelve sections are properly authored and worth keeping.
+
+    The exception is a section that cannot play as it stands: if every timed
+    action in it has a zero duration, `patch_timings` fills those in rather
+    than either discarding the section or leaving it broken.
     """
     build = MbrfBuild()
     existing = mbrf_length(chk)
@@ -591,8 +681,32 @@ def inject(chk: bytes, briefing, map_info=None, *, force: bool = False,
         build.warnings.append("no MBRF section to replace")
         return chk, build
     if existing > 0 and not force:
-        build.warnings.append(f"MBRF already populated ({existing} bytes); kept")
-        return chk, build
+        if not mbrf_is_unusable(chk):
+            build.warnings.append(
+                f"MBRF already populated ({existing} bytes); kept")
+            return chk, build
+        # Populated but unplayable: every timed action has a zero duration, so
+        # the whole briefing flushes at once with nothing readable.
+        #
+        # Only Resurrection IV (008/065) is like this, and footage of the N64
+        # version shows why: it renders Raynor and Artanis in two portrait
+        # slots, while this MBRF drives a single slot and alternates two unit
+        # ids. The console engine was reading the dir-007 script, not this
+        # section -- which is also why nobody ever filled the durations in.
+        # It is unfinished data rather than authored data, so rebuild it from
+        # the script, which carries the same two speakers and three objectives
+        # the console shows. `patch_timings` keeps the conservative behaviour
+        # of filling the durations and changing nothing else.
+        if patch_timings:
+            new_chk, patched = patch_zero_durations(chk)
+            if patched:
+                build.warnings.append(
+                    f"MBRF had {patched} zero-duration action(s); timings "
+                    f"filled in, rest of the section untouched")
+                return new_chk, build
+        build.warnings.append(
+            f"MBRF was populated but unplayable (every duration zero); "
+            f"rebuilt from the briefing script")
     if getattr(briefing, "is_stub", False):
         build.warnings.append("placeholder briefing; MBRF left zero-length")
         return chk, build

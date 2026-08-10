@@ -573,7 +573,31 @@ injector.
 across all 96 maps and the largest resulting section is ~18 KB against the u16
 offset ceiling of 65,535.
 
-### 6.4 Edition trap
+### 6.4 The ROM's own MBRF sections are mostly vestigial
+
+Twelve of the 96 scenarios ship a populated `MBRF`. Ten are properly authored
+and worth keeping. One (`008/01D`) is an empty stub. The last, **Resurrection
+IV (`008/065`)**, is populated but unplayable: 24 timed actions and **not one
+carries a duration**, so on PC every card is dismissed the instant it appears
+and the whole briefing flushes at once.
+
+Footage of the N64 version settles what that section is. The console renders
+Raynor and Artanis in **two** portrait slots, while this `MBRF` drives a
+**single** slot and alternates two unit ids. Both cannot be what the console
+displayed, so the engine was not reading this section at all — it was reading
+the dir-007 script, which independently carries the same two speakers and the
+same three objective lines the console shows.
+
+So these are leftover scaffolding rather than authored content, which also
+explains why nobody ever filled the durations in. The right treatment is to
+rebuild from the script; patching the durations in place preserves a
+presentation that was never used.
+
+`mbrf_is_unusable()` detects the case — timed actions present, every duration
+zero — and `patch_zero_durations()` remains available for the conservative
+fill-only behaviour.
+
+### 6.5 Edition trap
 
 Five portraits map to unit ids that mean different units in the two editions —
 88 is Artanis in Brood War and Merc Biker in original StarCraft, 98 is Raszagal
