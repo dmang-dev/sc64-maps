@@ -685,18 +685,25 @@ def inject(chk: bytes, briefing, map_info=None, *, force: bool = False,
             build.warnings.append(
                 f"MBRF already populated ({existing} bytes); kept")
             return chk, build
-        # Populated but unplayable: every timed action has a zero duration, so
-        # the whole briefing flushes at once with nothing readable.
+        # Populated but unplayable on PC: every timed action has a zero
+        # duration, so the whole briefing flushes at once with nothing
+        # readable. Only Resurrection IV (008/065) is like this.
         #
-        # Only Resurrection IV (008/065) is like this, and footage of the N64
-        # version shows why: it renders Raynor and Artanis in two portrait
-        # slots, while this MBRF drives a single slot and alternates two unit
-        # ids. The console engine was reading the dir-007 script, not this
-        # section -- which is also why nobody ever filled the durations in.
-        # It is unfinished data rather than authored data, so rebuild it from
-        # the script, which carries the same two speakers and three objectives
-        # the console shows. `patch_timings` keeps the conservative behaviour
-        # of filling the durations and changing nothing else.
+        # The zero durations are not an oversight. Screenshots of the console
+        # briefing screen show a page counter ("1/9") and a Next button: the
+        # N64 paced briefings by player input, one page at a time, so there
+        # was nothing for a duration field to do. Its single portrait frame,
+        # with the speaker's name rendered as text, likewise matches this
+        # section driving one slot and swapping the unit id per line. As
+        # console data it is coherent and complete.
+        #
+        # PC has no paged mode -- MBRF is timed-only, with no wait-for-input
+        # opcode -- so something has to give either way. Rebuilding from the
+        # script is the default because it makes this map consistent with the
+        # other 58, which have no authored MBRF to preserve and so are all
+        # built the same way. `patch_timings=True` is the faithful
+        # alternative: it fills the durations and changes nothing else,
+        # keeping Mass Media's one-portrait presentation intact.
         if patch_timings:
             new_chk, patched = patch_zero_durations(chk)
             if patched:

@@ -573,29 +573,46 @@ injector.
 across all 96 maps and the largest resulting section is ~18 KB against the u16
 offset ceiling of 65,535.
 
-### 6.4 The ROM's own MBRF sections are mostly vestigial
+### 6.4 The console paced briefings by hand, so durations can be absent
 
-Twelve of the 96 scenarios ship a populated `MBRF`. Ten are properly authored
-and worth keeping. One (`008/01D`) is an empty stub. The last, **Resurrection
-IV (`008/065`)**, is populated but unplayable: 24 timed actions and **not one
-carries a duration**, so on PC every card is dismissed the instant it appears
-and the whole briefing flushes at once.
+The N64 briefing screen is **paged**: it shows a counter such as `1/9`, one
+speaker at a time in a **single** portrait frame with the speaker's name
+rendered as text above the dialogue, and a **Next** button. The player
+advances it. One `<TEXT>` block in the dir-007 script equals one page — the
+9-page briefing observed on the console is `007/028` (*First Strike*), whose
+script has exactly nine `<TEXT>` blocks.
 
-Footage of the N64 version settles what that section is. The console renders
-Raynor and Artanis in **two** portrait slots, while this `MBRF` drives a
-**single** slot and alternates two unit ids. Both cannot be what the console
-displayed, so the engine was not reading this section at all — it was reading
-the dir-007 script, which independently carries the same two speakers and the
-same three objective lines the console shows.
+That design has two consequences for the data:
 
-So these are leftover scaffolding rather than authored content, which also
-explains why nobody ever filled the durations in. The right treatment is to
-rebuild from the script; patching the durations in place preserves a
-presentation that was never used.
+- **Durations are meaningless**, because nothing auto-advances.
+- **One portrait slot is sufficient**, because identity is carried by the name
+  text and by one-speaker-per-page, not by which frame is lit.
 
-`mbrf_is_unusable()` detects the case — timed actions present, every duration
-zero — and `patch_zero_durations()` remains available for the conservative
-fill-only behaviour.
+Twelve of the 96 scenarios ship a populated `MBRF`. Ten carry real durations.
+One (`008/01D`) is an empty stub. The last, **Resurrection IV (`008/065`)**,
+has 24 timed actions with **no durations at all** and drives a single portrait
+slot, swapping the unit id per line. Read against the console's design that is
+coherent and complete data — not something half-finished.
+
+It is nonetheless unplayable *on PC*, where `MBRF` is timed-only and there is
+no wait-for-input opcode. Something has to give, and there are two defensible
+answers:
+
+| | Result |
+|---|---|
+| Rebuild from the script (default) | consistent with the other 58 briefings, uses PC's four portrait slots |
+| `patch_timings=True` | fills only the durations, keeping the one-portrait presentation intact |
+
+`mbrf_is_unusable()` detects the case; `patch_zero_durations()` implements the
+faithful alternative.
+
+**A caution on evidence.** An earlier version of this section argued the
+section was vestigial because footage showed the console using two portrait
+slots. That footage was the *fan recreation* of Resurrection IV by Zero and
+Drake Clawfang, running in PC StarCraft — it shows the PC briefing UI, not the
+N64 one. Recreations of the N64-exclusive maps circulate widely and look
+plausible at a glance; check the source before treating one as console
+behaviour.
 
 ### 6.5 Edition trap
 
