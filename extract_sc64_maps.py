@@ -139,7 +139,12 @@ class BoltArchive:
         # not one here: it reads 0x9C036DD0 in the USA, Australia and German
         # ROMs alike, even though those archives differ in 401 of 2111 files,
         # and the last non-padding byte of the USA archive is at BOLT+0x1E85062.
-        # Nothing in this project depends on it; keep it exposed but unnamed.
+        #
+        # Asked upstream (heinermann/BOLTextract#4). The format's own
+        # reverse engineer does not know either, and notes it does not look
+        # like an end address in N64 RAM. So this is genuinely open rather
+        # than merely undocumented. Nothing here depends on it; keep it
+        # exposed but unnamed.
         self.header_u32 = struct.unpack_from(">I", hdr, 12)[0]
 
     @property
