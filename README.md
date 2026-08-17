@@ -280,6 +280,9 @@ extract_briefings.py     ROM -> briefings as readable text
 extract_glue.py          ROM -> establishing-shot and slideshow scripts
 briefing_to_mbrf.py      briefing script -> PC MBRF trigger records
 
+patch_scenario.py        read/edit the melee Scenario list in the ROM
+n64crc.py                detect and repair the N64 boot checksum
+
 verify_maps.py           StormLib-faithful validator for the output
 check_string_reuse.py    regression guard for briefing injection
 compare_with_stock.py    diff the output against an installed PC StarCraft
