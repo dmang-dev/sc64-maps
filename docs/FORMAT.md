@@ -524,15 +524,49 @@ indices.
 ### 6.1 Which idiom to emit
 
 All **433** Transmission actions across 67 genuine campaign scenarios carry a
-non-zero wav index — no exceptions. The N64 briefings have no audio, so this
-project emits Blizzard's wav-free sequence instead of opcode 8:
+non-zero wav index — no exceptions. Blizzard never demonstrates the wav-free
+case, so for a long time this project emitted the long-hand sequence instead:
 
 ```
 ShowPortrait → DisplaySpeakingPortrait → DisplayText → Wait
 ```
 
-Whether a wav-*less* opcode 8 works at all is unknown and needs the engine to
-settle; if it does, each line collapses from three actions to one.
+**A wav-less opcode 8 works.** Settled by asking the engine: a map carrying one
+Transmission with `wav = 0` alongside the long-hand sequence as a control, run
+in StarCraft. Both lines displayed. The emitter now uses opcode 8, and a line
+with a portrait costs **one** action instead of three:
+
+```
+ShowPortrait (first use only) → Transmission
+```
+
+The control mattered. A briefing that shows nothing at all is indistinguishable
+from one whose wav-free line silently failed, and without a known-good line in
+the same record there is no way to tell the two apart.
+
+**Opcode 8 blocks for its own `time`,** so nothing waits after it. That does not
+follow from the display test — the test map put an explicit Wait after the
+Transmission, which would have masked a non-blocking action — but the campaign
+data settles it. Of the 433 genuine Transmissions, **273 (63.0%) are immediately
+followed by another Transmission**, which is only coherent if each one holds.
+Where a Wait does follow, it is a short beat between lines and not the hold: 67
+of the 85 are exactly 1000 ms, and none matches the duration of the Transmission
+it follows.
+
+Field usage is copied from the dominant genuine form, **382 of 433 (88.2%)**:
+
+```
+location = 0   group2 = 0   unit = 0   modifier = 9   flags = 0
+```
+
+`unit` is zero in **every one of the 433**. Opcode 8 takes its face from the
+portrait slot named in `group1`; it carries no unit id of its own, so a
+ShowPortrait must have filled that slot first.
+
+Measured over the whole ROM, the collapse takes the 431 emitted dialogue lines
+from 1850 actions to 990. The point is not the total but the ceiling: a record
+holds only 64 actions, and the busiest generated briefing — `008/042` — sat at
+**60 of 64**, four short of forcing a spill. It now sits at 28.
 
 ### 6.2 Timing has to be invented
 

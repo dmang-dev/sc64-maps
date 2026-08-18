@@ -68,6 +68,15 @@ ACT_HIDE_PORTRAIT = 6
 ACT_SPEAKING_PORTRAIT = 7
 ACT_TRANSMISSION = 8
 
+# Transmission's modifier field.  Measured over 986 genuine campaign
+# Transmissions: 974 carry 9, and the dominant whole-record combination --
+# 87.7% of them -- is location=0, group2=0, unit=0, modifier=9, flags=0.
+#
+# The unit field is zero in every single one.  Opcode 8 takes its face from
+# the portrait slot named in group1, which an earlier ShowPortrait must have
+# filled; it does not carry a unit id of its own.
+TRANSMISSION_MODIFIER = 9
+
 # Action flag bits.  0x10 ("unit type field is used") is what the ROM's own
 # PC-authored records set on every ShowPortrait, and 109 of the 200 campaign
 # ones do too; the other 91 leave it clear and still work, so it is advisory.
@@ -418,24 +427,33 @@ def build_mbrf(briefing, str_table, *, portrait_unit: dict | None = None,
     ``StringTable`` or the raw bytes of a ``STR `` section; the returned
     ``MbrfBuild`` carries both the packed records and the rebuilt table.
 
-    The emitted shape is Blizzard's own wav-free briefing idiom, taken from
-    the stock ``Maps\\scenario\\(2)Pro Bowl.scm`` and from 008/05A and 008/05F
-    inside the ROM:
+    The emitted shape:
 
         MissionObjectives(text)
         ShowPortrait(slot, unit) ; Wait(1000)
         for each line:
             [HidePortrait(victim)] [ShowPortrait(slot, unit)]
-            DisplaySpeakingPortrait(slot, t)
-            DisplayText(text, t)
-            Wait(t)
+            Transmission(slot, text, wav=0, t)   # no portrait: Text ; Wait
         Wait(1000) ; HidePortrait(each open slot) ; DisplayText(closing, 5000)
 
-    Opcode 8 (Transmission) is deliberately *not* used.  All 433 transmissions
-    in the genuine campaign carry a .wav and derive their duration from it; the
-    N64 scripts have no audio, and where Blizzard themselves stripped the wavs
-    -- 008/028 and 008/02E in this very ROM -- they disabled every Transmission
-    action (flag 0x02) rather than leave it running dry.
+    Opcode 8 carries the speaking portrait, the text and the hold in one
+    action, and it blocks for its own ``time`` -- 273 of the 433 genuine
+    campaign transmissions are followed immediately by another one, which
+    only works if each holds.  See ``docs/FORMAT.md`` 6.1.
+
+    This used to emit the long-hand ``SpeakingPortrait ; DisplayText ;
+    Wait`` instead, because all 433 genuine transmissions carry a .wav and
+    derive their duration from it, so the wav-free case was undemonstrated.
+    It was then tested directly against StarCraft, with the long-hand
+    sequence in the same record as a control, and a ``wav = 0`` transmission
+    displays fine.
+
+    Worth knowing, since it argues the other way: where Blizzard themselves
+    stripped the wavs -- 008/028 and 008/02E in this very ROM -- they
+    disabled every Transmission (flag 0x02) rather than leave it running
+    dry.  That is a wav index pointing at audio that is gone, though, which
+    is not the same as no wav index at all.  Those two briefings are shipped
+    content and are left exactly as they are.
     """
     table = str_table if isinstance(str_table, StringTable) else StringTable(str_table)
     units = PORTRAIT_UNIT if portrait_unit is None else portrait_unit
@@ -489,11 +507,21 @@ def build_mbrf(briefing, str_table, *, portrait_unit: dict | None = None,
                 if first:
                     group.append(_action(ACT_WAIT, time=MS_OPENING_WAIT))
                     build.duration_ms += MS_OPENING_WAIT
-            group.append(_action(ACT_SPEAKING_PORTRAIT, group1=slot, time=duration))
         first = False
 
-        group.append(_action(ACT_DISPLAY_TEXT, string=table.add(body), time=duration))
-        group.append(_action(ACT_WAIT, time=duration))
+        if slot is not None:
+            # One Transmission carries the speaking portrait, the text and the
+            # hold.  It blocks for its own `time`, so nothing waits after it --
+            # see the measurement in FORMAT.md 6.1.
+            group.append(_action(ACT_TRANSMISSION, group1=slot,
+                                 string=table.add(body), wav=0, time=duration,
+                                 modifier=TRANSMISSION_MODIFIER))
+        else:
+            # A line with no portrait has no slot to transmit from, so
+            # narration still costs the long-hand pair.
+            group.append(_action(ACT_DISPLAY_TEXT, string=table.add(body),
+                                 time=duration))
+            group.append(_action(ACT_WAIT, time=duration))
         build.duration_ms += duration
         build.lines += 1
         groups.append(group)
@@ -617,9 +645,10 @@ def patch_zero_durations(chk: bytes) -> tuple[bytes, int]:
     order. Patching only the zero durations keeps all of that and fixes the one
     thing that is actually broken.
 
-    A zero-duration DisplayText gets a reading time from its own string; a
-    zero-duration Wait or SpeakingPortrait inherits the DisplayText it follows,
-    which is what actually holds the card on screen.
+    A zero-duration DisplayText or Transmission gets a reading time from
+    its own string -- both carry the string index at +4; a zero-duration
+    Wait or SpeakingPortrait inherits the one it follows, which is what
+    actually holds the card on screen.
 
     Returns (new_chk, actions_patched).
     """
@@ -648,11 +677,11 @@ def patch_zero_durations(chk: bytes) -> tuple[bytes, int]:
             if action_type == 0:
                 break
             if action_type not in (ACT_WAIT, ACT_DISPLAY_TEXT,
-                                   ACT_SPEAKING_PORTRAIT):
+                                   ACT_SPEAKING_PORTRAIT, ACT_TRANSMISSION):
                 continue
             if struct.unpack_from("<I", mbrf, off + 12)[0]:
                 continue                      # already timed; leave it alone
-            if action_type == ACT_DISPLAY_TEXT:
+            if action_type in (ACT_DISPLAY_TEXT, ACT_TRANSMISSION):
                 index = struct.unpack_from("<I", mbrf, off + 4)[0]
                 last_ms = estimate_duration(strings.get(index) or "")
             struct.pack_into("<I", mbrf, off + 12, last_ms)
