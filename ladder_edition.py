@@ -43,6 +43,22 @@ MELEE_BASE = 60
 RECORDS = 0x0D16E8
 FREE_SLOTS = list(range(85, 96))        # indices no list entry points at
 
+# The two-player melee map selector walks a bounded range starting at map index
+# 60. Its length is an immediate in the menu setup code:
+#
+#     RAM 0x800D9F78 / file 0x0DAB78    addiu a2, zero, 27
+#
+# 27 covers indices 60..86, so a map installed at 87 or beyond exists, loads
+# through the Scenario list, and is simply unreachable in a 1v1 game. Widening
+# the immediate to (last_index - 60 + 1) brings the whole lineup into the
+# selector. Confirmed by patching it and watching the list grow.
+#
+# This is inside the boot checksum window, so the header must be repaired --
+# which this script does anyway for the Scenario table.
+LIST_LEN_OFFSET = 0x0DAB78
+LIST_LEN_EXPECT = 0x2406001B          # addiu a2, zero, 0x1b
+
+
 # Every section tag StarCraft defines. Anything else in a scenario is padding
 # a protector added: competitive maps are routinely spammed with sections
 # carrying random four-byte tags, which PC StarCraft ignores and plays anyway.
@@ -186,6 +202,19 @@ for n, (name, idx, info, humans, _, _) in enumerate(installed[:9], start=1):
     rom[rec] = (idx - MELEE_BASE) & 0xFF
     rom[rec + 1] = opponents
     print(f"  list entry {n}: -> index {idx}  1v{opponents}  {info.name[:34]}")
+
+# Widen the two-player selector so every installed map is reachable in 1v1.
+last_index = installed[-1][1] if installed else 86
+want_len = max(0x1B, last_index - MELEE_BASE + 1)
+have = struct.unpack_from(">I", rom, LIST_LEN_OFFSET)[0]
+if have != LIST_LEN_EXPECT:
+    print(f"  warning: {LIST_LEN_OFFSET:#08x} is {have:#010x}, expected "
+          f"{LIST_LEN_EXPECT:#010x} -- leaving the 1v1 list length alone")
+else:
+    struct.pack_into(">I", rom, LIST_LEN_OFFSET,
+                     (have & 0xFFFF0000) | want_len)
+    print(f"  1v1 map list: {have & 0xFFFF} -> {want_len} entries "
+          f"(indices {MELEE_BASE}..{MELEE_BASE + want_len - 1})")
 
 c1, c2 = n64crc.fix(rom, variant)
 print(f"\nboot checksum repaired -> {c1:#010x} {c2:#010x}")

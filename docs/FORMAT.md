@@ -893,3 +893,31 @@ every map with three does not.
    so the cartridge's ~313 KiB of tail padding stops being the constraint.
    Requires bolt-lzss 0.2.0 or later; earlier versions emit streams this
    engine's decoder rejects.
+
+### 10.4 The two-player map selector is bounded separately
+
+Two-player melee has its own map list, and it is not the Scenario list. It
+walks a contiguous run of map indices starting at 60, and its length is an
+immediate in the menu setup code:
+
+```
+RAM 0x800D9F78   file 0x0DAB78    addiu a2, zero, 27      -> indices 60..86
+```
+
+27 is the cartridge's own melee map count. A map installed at index 87 or
+beyond therefore exists, loads fine through the Scenario list, and is simply
+unreachable in a 1v1 game — the selector wraps from 86 straight back to 60.
+
+Widening the immediate extends the range; at 32 the selector covers 60..91.
+Confirmed by patching and watching the list grow rather than by reading alone,
+because 27 is a small number that occurs all over the image — a scan for it
+finds 482 sites, nearly all stack displacements.
+
+That address is inside the boot checksum window, so the header needs repairing
+(see 9.3).
+
+Two-player itself needs no ROM change. It refuses to start without an
+Expansion Pak **and** a second controller, and says so on screen; in an
+emulator both are configuration. Note that the RDRAM domain size reports
+8,388,608 whether or not the Pak is enabled — that is the addressable size, not
+what is installed, so it cannot be used to confirm the Pak is present.
