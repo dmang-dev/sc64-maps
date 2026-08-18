@@ -278,6 +278,7 @@ starcraft_install.py     find a PC StarCraft install, legacy or Remastered
 extract_sc64_maps.py     ROM -> .scm/.scx  (--briefings compiles MBRF in)
 extract_briefings.py     ROM -> briefings as readable text
 extract_glue.py          ROM -> establishing-shot and slideshow scripts
+decode_art.py            ROM -> artwork as PNGs (RGBA5551 palettes)
 briefing_to_mbrf.py      briefing script -> PC MBRF trigger records
 
 ladder_edition.py        install PC ladder maps into the melee slots
