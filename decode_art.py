@@ -132,6 +132,143 @@ def directory_of(path: str) -> str:
     return path.rsplit("/", 1)[0] if "/" in path else ""
 
 
+def _next_slot(path: str) -> str | None:
+    d, _, idx = path.rpartition("/")
+    try:
+        return f"{d}/{int(idx, 16) + 1:03X}"
+    except ValueError:
+        return None
+
+
+def _slot_num(path: str) -> int:
+    try:
+        return int(path.rsplit("/", 1)[1], 16)
+    except (IndexError, ValueError):
+        return -1
+
+
+def _runs(paths: list[str]) -> list[list[str]]:
+    """Split into maximal runs of consecutive slot numbers."""
+    out: list[list[str]] = []
+    for p in paths:
+        if out and _slot_num(p) == _slot_num(out[-1][-1]) + 1:
+            out[-1].append(p)
+        else:
+            out.append([p])
+    return out
+
+
+# Two directories hold images and no palette at all -- 91 in 000 and 23 in 007,
+# very nearly half the archive, and the reason this tool used to decode 46 of
+# 240. Their palettes live in directory 006, which holds 16 palettes and no
+# images of its own.
+#
+# Neither was found by a statistic. Spatial-coherence scoring was tried and
+# fails outright: it ranks palettes that render almost everything black at the
+# top, because one flat colour is perfectly coherent, and on a known-good
+# pairing (008 image with its own palette) the correct answer only came fifth
+# of 142. What settled it was decoding against every candidate and looking:
+# 007 is the campaign briefing cast -- the Adjutant, Raynor, Kerrigan, Mengsk,
+# DuGalle, cerebrates -- and 000 is the unit and building renders, both
+# unmistakable when the palette is right and noise when it is not.
+#
+# 006/030 differs from 006/004 in exactly one of its 256 entries, and 006/035
+# is likewise interchangeable with 006/02B, so the choice between them is
+# cosmetic.
+EXTERNAL_PALETTES = {
+    "000": "006/02B",       # unit and building renders
+    "007": "006/004",       # briefing portraits
+}
+
+
+def pair_palettes(images, palettes) -> dict[str, str | None]:
+    """{image path: palette path or None}, resolved per directory.
+
+    Four layouts occur, and all four fall out of one pass:
+
+      adjacent    003 (image, palette, font ramp), 009 (image, palette)
+                  -- the palette sits in the slot right after its image
+      parallel    008: 36 images at 068..08B then 36 palettes at 08C..0AF,
+                  paired by position. 004 is three adjacent pairs followed by
+                  a parallel block, and 002 is a mixture of both
+      shared      005: six images and a single palette between them
+      external    000 and 007, which carry no palette -- see above
+
+    Pairing works on RUNS rather than on individual entries. Taking whatever
+    palette sat in the next slot went wrong at a block boundary: in 004 the
+    last image of a 39-image run sits immediately before the 39-palette block,
+    claimed its first palette, and rotated every other pairing by one. That
+    still decoded -- to 39 pictures of noise.
+    """
+    groups: dict[str, dict[str, list[str]]] = {}
+    for p in images:
+        groups.setdefault(directory_of(p), {"img": [], "pal": []})["img"].append(p)
+    for p in palettes:
+        groups.setdefault(directory_of(p), {"img": [], "pal": []})["pal"].append(p)
+
+    out: dict[str, str | None] = {}
+    for d, g in groups.items():
+        imgs, pals = g["img"], g["pal"]
+        if not imgs:
+            continue
+
+        ext = EXTERNAL_PALETTES.get(d)
+        if ext and ext in palettes:
+            for i in imgs:
+                out[i] = ext
+            continue
+
+        if len(pals) == 1:
+            for i in imgs:
+                out[i] = pals[0]
+            continue
+
+        img_runs = _runs(imgs)
+        pal_runs = _runs(pals)
+        used_runs: set[int] = set()
+
+        # A lone image followed by a palette is an adjacent pair. A RUN of
+        # images is a parallel array and takes a whole palette run.
+        for run in img_runs:
+            if len(run) == 1 and _next_slot(run[0]) in palettes:
+                nxt = _next_slot(run[0])
+                for n, pr in enumerate(pal_runs):
+                    if nxt in pr and len(pr) == 1:
+                        out[run[0]] = nxt
+                        used_runs.add(n)
+                        break
+
+        for run in img_runs:
+            if all(i in out for i in run):
+                continue
+            # Prefer the nearest unused palette run that can cover it, looking
+            # forward first: 004 and 008 put the palettes after their images,
+            # 002 puts one block before.
+            best = None
+            for n, pr in enumerate(pal_runs):
+                if n in used_runs or len(pr) < len(run):
+                    continue
+                after = _slot_num(pr[0]) > _slot_num(run[-1])
+                dist = abs(_slot_num(pr[0]) - _slot_num(run[-1]))
+                key = (0 if after else 1, dist)
+                if best is None or key < best[0]:
+                    best = (key, n)
+            if best is None:
+                continue
+            n = best[1]
+            used_runs.add(n)
+            for i, p in zip(run, pal_runs[n]):
+                out[i] = p
+
+        # Anything still unpaired takes what is left, in order.
+        left_p = [p for p in pals if p not in set(out.values())]
+        for i, p in zip([i for i in imgs if i not in out], left_p):
+            out[i] = p
+        for i in imgs:
+            out.setdefault(i, None)
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description="Decode StarCraft 64 artwork into PNGs.",
@@ -149,38 +286,30 @@ def main(argv=None) -> int:
     images, palettes = collect(arc)
     print(f"{len(images)} images, {len(palettes)} palettes")
 
-    # Two pairing shapes occur, and both are visible in the archive order.
-    #
-    #   alternating   009/000 image, 009/001 palette, 009/002 image, ...
-    #                 -- each image is followed by its own palette
-    #   shared        005/000..005 images, then 005/006 the one palette
-    #
-    # So: prefer the palette in the slot immediately after the image, and fall
-    # back to the directory's single palette. Anything else is reported rather
-    # than guessed at -- the wrong palette yields a picture that looks
-    # plausible and is wrong, which is worse than no picture.
+    pairing = pair_palettes(images, palettes)
+
     by_dir: dict[str, list[str]] = {}
     for p in palettes:
         by_dir.setdefault(directory_of(p), []).append(p)
 
     def palette_for(img_path: str) -> bytes | None:
-        d, _, idx = img_path.rpartition("/")
-        try:
-            nxt = f"{d}/{int(idx, 16) + 1:03X}"
-        except ValueError:
-            nxt = None
-        if nxt and nxt in palettes:
-            return palettes[nxt]
-        cands = by_dir.get(d, [])
-        return palettes[cands[0]] if len(cands) == 1 else None
+        chosen = pairing.get(img_path)
+        return palettes[chosen] if chosen else None
 
     if a.list:
         for d in sorted(set(map(directory_of, images)) | set(by_dir)):
             imgs = [p for p in images if directory_of(p) == d]
+            if not imgs:
+                continue
             pals = by_dir.get(d, [])
-            print(f"  {d or '(root)':10} {len(imgs):4} images  "
-                  f"{len(pals):2} palettes"
-                  + ("" if len(pals) == 1 or not imgs else "   <- ambiguous"))
+            srcs = {directory_of(pairing[i]) for i in imgs if pairing.get(i)}
+            unpaired = sum(1 for i in imgs if not pairing.get(i))
+            where = ",".join(sorted(srcs)) or "-"
+            print(f"  {d or '(root)':8} {len(imgs):4} images  {len(pals):3} palettes"
+                  f"   palettes from {where:8}"
+                  + (f"   {unpaired} UNPAIRED" if unpaired else ""))
+        total = sum(1 for i in images if not pairing.get(i))
+        print(f"  {len(images) - total}/{len(images)} images have a palette")
         return 0
 
     os.makedirs(a.out, exist_ok=True)
