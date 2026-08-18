@@ -804,3 +804,92 @@ than derived from the pointer array, the record was evidently written in a
 different convention, and nothing ever exercised it. Enabling the entry means
 finding that length constant — it is not in the bytes adjacent to the table,
 which are a separate ascending run (`07 0c 11 14 16 19 1d 20 28 31 3b`).
+
+## 10. How the engine parses a CHK
+
+The console does not walk a scenario the way a PC tool does. It has a **section
+dispatch table**, and it consults a different list of sections depending on the
+map's `VER`.
+
+### 10.1 The table
+
+At RAM `0x80001644` (file `0x001644`) sits an array of 12-byte records:
+
+```
+struct { char tag[4]; void (*handler)(void *data, u32 size); u32 flag; }
+```
+
+Immediately before it, at `0x8000165C`, is a header with a 40-byte stride, one
+entry per supported map version:
+
+```
+struct { u32 version; struct { record *list; u32 count; } phase[4]; u32 zero; }
+```
+
+Three versions are supported, and the section lists differ between them:
+
+| `VER` | format | phase 1 (9) | phase 2 (2) | phase 3 | phase 4 |
+|---|---|---|---|---|---|
+| 59 | StarCraft `.scm` | VER DIM ERA OWNR SIDE STR SPRP FORC VCOD | STR MBRF | STR MTXM THG2 UNIT | 19 sections |
+| 63 | StarCraft 1.04+ `.scm` | as above | as above | as above | 19 sections |
+| 205 | Brood War `.scx` | as above | as above | + COLR (5) | 15 sections |
+
+The phases are load stages — header, briefing, preview, full load — which is
+why `STR` reappears at the head of each: every stage that resolves text has to
+have the string table in hand first.
+
+Two things fall out of this that matter for injection. The engine reads
+**`MTXM` for terrain and never reads `ISOM` or `TILE`**, which is exactly why PC
+ladder maps work at all: they carry no `ISOM`. And the version-205 list drops
+`UNIS`/`UPGS`/`TECS`/`UPGR`/`PTEC` in favour of the `x` variants, so a Brood
+War map is not merely tolerated, it is separately provided for.
+
+### 10.2 The MTXM handler, and why duplicate sections break it
+
+`MTXM`'s handler is at `0x8002DADC`. Decompiled, it is:
+
+```c
+if (size <= (u32)DIM_width * (u32)DIM_height * 2) {
+    if (copy_section(data, tile_buffer)) {
+        for (n = size >> 1; n--; p++)      /* byte-swap each u16 in place */
+            *p = CONCAT11(*((u8 *)p + 1), *(u8 *)p);
+        rebuild_terrain(); ...
+        return 1;
+    }
+}
+return 0;                                  /* no terrain, load continues */
+```
+
+So it range-checks the section against `DIM`, copies it to **one fixed tile
+buffer**, byte-swaps every entry in place (PC tile ids are little endian, the
+N64 is big endian), and re-runs the terrain rebuild. On failure it returns 0
+and the rest of the map loads anyway — which is why a bad `MTXM` produces a
+*playable* game with resources, units and a minimap, and no tiles at all.
+
+The trap is that the handler runs **once per `MTXM` section**. A CHK may carry
+the same tag repeatedly, and StarCraft applies them in order, each overwriting
+from the start of the array — map protectors rely on it. The console instead
+re-copies, re-swaps and rebuilds over a buffer that has already been converted.
+
+Measured over the 2017 Frontier League set: every map with one `MTXM` renders,
+every map with three does not.
+
+| map | `MTXM` sections | terrain |
+|---|---|---|
+| Destination, Match Point, Circuit Breakers, Jade | 1 | draws |
+| Longinus 2, Tau Cross, Fighting Spirit | 3 | absent |
+
+### 10.3 Normalising a PC map before injection
+
+`ladder_edition.py` applies three passes, and only the second is load-bearing:
+
+1. **Strip unknown-tag sections.** Protectors interleave junk sections with
+   random four-byte tags; StarCraft ignores them. Correlates perfectly with
+   failure and, tested alone, fixes nothing — it is kept because it is
+   harmless and shrinks the payload, not because it was shown to matter.
+2. **Collapse duplicate sections** the way StarCraft resolves them: one section
+   per tag, later occurrences overlaid from offset 0. This is the fix.
+3. **Compress with the BOLT LZSS encoder.** Scenarios store at roughly a fifth,
+   so the cartridge's ~313 KiB of tail padding stops being the constraint.
+   Requires bolt-lzss 0.2.0 or later; earlier versions emit streams this
+   engine's decoder rejects.

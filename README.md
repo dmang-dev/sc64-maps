@@ -280,6 +280,9 @@ extract_briefings.py     ROM -> briefings as readable text
 extract_glue.py          ROM -> establishing-shot and slideshow scripts
 briefing_to_mbrf.py      briefing script -> PC MBRF trigger records
 
+ladder_edition.py        install PC ladder maps into the melee slots
+inject_map.py            put one PC map into a BOLT slot
+pc_maps.py               read a PC .scm/.scx, protected ones included
 patch_scenario.py        read/edit the melee Scenario list in the ROM
 n64crc.py                detect and repair the N64 boot checksum
 
