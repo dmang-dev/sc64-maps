@@ -174,6 +174,47 @@ def _runs(paths: list[str]) -> list[list[str]]:
     return out
 
 
+# Directory 006 is the UI and glue-screen bank, and it follows none of the
+# positional rules the other directories do: a palette sits before its images
+# as often as after, several images share one, and 006/004, 006/02B, 006/02C,
+# 006/030 and 006/035 serve OTHER directories (the briefing portraits, the
+# building sprites, the menu frames) rather than anything in 006 itself.
+#
+# So this is a measured table, not a rule. Every pairing here was decoded and
+# examined: the UI pieces form one visual family -- purple armoured bezels
+# over a green chroma key with flat dark-green interiors -- the backdrops are
+# photographic and not keyed at all, and 006/020 reads "R BUTTON" cleanly.
+# Cross-image consistency of that kind is what a wrong palette cannot produce.
+#
+# 006/000 and 006/012..018 are NOT here. They belong to the same family, but
+# 006/001, 006/01C and 006/022 render them identically, so the evidence cannot
+# choose between those three, and 006/000 comes out near-black under all of
+# them. They are reported as unpaired rather than guessed at.
+DIR006_PAIRING = {
+    "006/01B": "006/01A",       # space backdrop, planet and moon
+    "006/01D": "006/01C",       # single readout bar
+    "006/01E": "006/01C",       # double readout bar
+    "006/01F": "006/01C",       # main panel frame
+    "006/020": "006/021",       # "R BUTTON" legend plate
+    "006/023": "006/022",       # wide panel frame
+    "006/024": "006/022",       # tall panel frame
+    "006/025": "006/022",       # tall panel frame, corner bracket
+    "006/026": "006/022",       # small landscape panel
+    "006/027": "006/022",       # selector bar, gold chevrons
+    "006/028": "006/022",       # selector bar, wider
+    "006/029": "006/022",       # the same bar with no chevrons
+    "006/02A": "006/02B",       # tiled industrial interior backdrop
+    "006/02D": "006/02C",       # two-pane panel frame
+    "006/02E": "006/02C",       # wide panel frame
+    "006/02F": "006/02C",       # small rail / button strip
+    "006/032": "006/031",       # panel frame, dial ornament
+    "006/033": "006/031",       # wide message box
+    "006/034": "006/031",       # small square panel
+    "006/036": "006/037",       # moon over a rocky landscape
+    "006/038": "006/039",       # deep space, planet limb
+    "006/03B": "006/03A",       # large keyed panel frame
+}
+
 # Two directories hold images and no palette at all -- 91 in 000 and 23 in 007,
 # very nearly half the archive, and the reason this tool used to decode 46 of
 # 240. Their palettes live in directory 006, which holds 16 palettes and no
@@ -226,6 +267,12 @@ def pair_palettes(images, palettes) -> dict[str, str | None]:
     for d, g in groups.items():
         imgs, pals = g["img"], g["pal"]
         if not imgs:
+            continue
+
+        if d == "006":
+            # Measured, not derived -- see DIR006_PAIRING.
+            for i in imgs:
+                out[i] = DIR006_PAIRING.get(i)
             continue
 
         ext = EXTERNAL_PALETTES.get(d)
