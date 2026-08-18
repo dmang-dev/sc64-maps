@@ -23,6 +23,7 @@ you supply and writes a patched copy locally.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import struct
 import sys
 from pathlib import Path
@@ -42,6 +43,19 @@ ALIGN = 16
 MELEE_BASE = 60
 RECORDS = 0x0D16E8
 FREE_SLOTS = list(range(85, 96))        # indices no list entry points at
+
+# With --expand the cartridge is doubled to 64 MiB and every payload goes in
+# the new half, so the ~313 KiB of tail padding stops being the budget and the
+# whole melee range becomes usable. Verified on the engine: a map whose stream
+# sits at file 0x3000000, 16 MiB past the original end, loads and plays. The
+# N64 cartridge window runs to roughly 64 MiB, BOLT offsets are u32 relative to
+# a base at 0x12CA10, and the boot checksum only covers 0x1000..0x101000, so
+# nothing about growing the image disturbs what is already there.
+#
+# 60 is the first melee map. Indices above 95 are NOT usable: they map to BOLT
+# entries 008/068 and beyond, which hold other data, and the selector's window
+# is contiguous from 60.
+MELEE_SLOTS = list(range(60, 96))
 
 # The two-player melee map selector walks a bounded range starting at map index
 # 60. Its length is an immediate in the menu setup code:
@@ -137,6 +151,12 @@ ap.add_argument("-o", "--out", default="sc64_ladder_edition.z64")
 ap.add_argument("--level", type=int, default=3)
 ap.add_argument("--maps", required=True,
                 help="directory of .scm/.scx maps to install")
+ap.add_argument("--recursive", action="store_true",
+                help="search --maps recursively and drop duplicate scenarios; "
+                     "the seasons in a ladder folder repeat the pool heavily")
+ap.add_argument("--expand", action="store_true",
+                help="double the ROM to 64 MiB and use the whole melee range, "
+                     "replacing the cartridge's own melee maps")
 a = ap.parse_args()
 
 rom_path = find_rom(a.rom)
@@ -147,18 +167,38 @@ variant = n64crc.detect(bytes(rom))
 if variant is None:
     sys.exit("error: unrecognised ROM -- checksum matches no CIC variant")
 
-sources = sorted(Path(a.maps).glob("*.sc*"))
+slots = MELEE_SLOTS if a.expand else FREE_SLOTS
+if a.expand:
+    rom.extend(bytes(len(rom)))
+    print(f"expanded to {len(rom):,} bytes ({len(rom) // 2**20} MiB)")
+
+sources = sorted(Path(a.maps).glob("**/*.sc*" if a.recursive else "*.sc*"))
+if a.recursive:
+    # Deduplicate on the NORMALISED scenario, not the file: the same map
+    # reappears season after season with different protector padding, so
+    # hashing the raw file would keep all of them.
+    seen, unique = set(), []
+    for src in sources:
+        try:
+            key = hashlib.sha256(collapse_duplicates(strip_junk(read_chk(src))[0])[0]).hexdigest()
+        except Exception:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(src)
+    print(f"{len(sources)} files -> {len(unique)} unique scenarios")
+    sources = unique
 if not sources:
     sys.exit(f"no maps found in {a.maps}")
-if len(sources) > len(FREE_SLOTS):
-    sys.exit(f"{len(sources)} maps but only {len(FREE_SLOTS)} free slots")
+sources = sources[:len(slots)]
 
 print(f"ROM {Path(rom_path).name}  CIC {variant}")
 print(f"installing {len(sources)} maps into indices "
-      f"{FREE_SLOTS[0]}..{FREE_SLOTS[len(sources) - 1]}\n")
+      f"{slots[0]}..{slots[len(sources) - 1]}\n")
 
 installed = []
-for src, idx in zip(sources, FREE_SLOTS):
+for src, idx in zip(sources, slots):
     chk = read_chk(src)
     chk, dropped = strip_junk(chk)
     chk, dupes = collapse_duplicates(chk)
