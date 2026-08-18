@@ -35,7 +35,6 @@ import zlib
 
 from extract_sc64_maps import BoltArchive, load_rom
 
-IMAGE_MAGIC = b"\x00\x00\x00\x08"
 IMAGE_HEADER = 16
 PALETTE_SIZE = 518
 PALETTE_PREFIX = 6
@@ -86,10 +85,27 @@ def decode_palette(data: bytes) -> list[tuple[int, int, int, int]]:
 
 
 def is_image(data: bytes) -> bool:
-    if len(data) <= IMAGE_HEADER or data[:4] != IMAGE_MAGIC:
+    """An 8bpp image entry.
+
+    The header word is not a magic number: its LOW half is the depth and its
+    HIGH half is a flag. Testing the whole word against 00 00 00 08 therefore
+    accepted only flag 0 and silently rejected 41 images -- 9 with flag 1, 6
+    with flag 2 and 26 with flag 3, which between them are all of directory
+    006 and part of 002 and 009. The archive holds 281 images, not 240.
+
+    What the flag means is not established here. It is not the depth, and the
+    size check below still holds for every value of it, so decoding does not
+    depend on knowing.
+    """
+    if len(data) <= IMAGE_HEADER:
+        return False
+    depth = struct.unpack_from(">I", data)[0] & 0xFFFF
+    if depth != 8:
         return False
     _, _, w, h, _ = struct.unpack_from(">IIHHI", data)
-    return IMAGE_HEADER + w * h == len(data)
+    # The size check is what keeps this honest: an entry that merely starts
+    # with an 8 is not an image unless its dimensions account for its length.
+    return bool(w and h) and IMAGE_HEADER + w * h == len(data)
 
 
 def decode_image(data: bytes, palette) -> tuple[int, int, bytes]:
