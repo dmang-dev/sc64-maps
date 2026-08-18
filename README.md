@@ -279,14 +279,8 @@ extract_sc64_maps.py     ROM -> .scm/.scx  (--briefings compiles MBRF in)
 extract_briefings.py     ROM -> briefings as readable text
 extract_glue.py          ROM -> establishing-shot and slideshow scripts
 decode_art.py            ROM -> artwork as PNGs (RGBA5551 palettes)
-title_brand.py           stamp text onto the title screen
 briefing_to_mbrf.py      briefing script -> PC MBRF trigger records
 
-ladder_edition.py        install PC ladder maps into the melee slots
-inject_map.py            put one PC map into a BOLT slot
-pc_maps.py               read a PC .scm/.scx, protected ones included
-patch_scenario.py        read/edit the melee Scenario list in the ROM
-n64crc.py                detect and repair the N64 boot checksum
 
 verify_maps.py           StormLib-faithful validator for the output
 check_string_reuse.py    regression guard for briefing injection
@@ -299,6 +293,13 @@ docs/FORMAT.md           BOLT, CHK, MPQ, CASC and briefing-script notes
 reference/               vendored prior art, with provenance and licences
 gamedata/                everything game-derived; gitignored wholesale
 ```
+
+## Related
+
+Patching a cartridge — installing PC ladder maps into the melee slots, editing
+the melee tables, rebranding the title screen, expanding the image to 64 MiB —
+lives in **[sc64-le](https://github.com/dmang-dev/sc64-le)**, which builds on
+this. This repository stays about reading a cartridge.
 
 ## Credits
 
