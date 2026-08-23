@@ -190,6 +190,40 @@ def _runs(paths: list[str]) -> list[list[str]]:
 # 006/001, 006/01C and 006/022 render them identically, so the evidence cannot
 # choose between those three, and 006/000 comes out near-black under all of
 # them. They are reported as unpaired rather than guessed at.
+# Six of directory 006's palettes are near-identical green-key variants:
+# 006/001, 006/01C, 006/022, 006/02C, 006/031 and 006/03A agree on 251 of 256
+# entries and differ only at indices 1, 2, 3, 4 and 254. 006/01C and 006/022
+# are byte-identical to each other, as are 006/031 and 006/03A.
+#
+# That is why looking cannot choose between them for the screen-A UI pieces,
+# and why it does not much matter: those images use the five differing indices
+# between 0.000% and 4.8% of their pixels, and 006/014, 006/015, 006/017 and
+# 006/03C do not use them at all, so their decode is pixel-identical whichever
+# is picked. Each is paired with the green-key palette of its own screen group.
+#
+# 006/000 is the exception and is deliberately left out: 89.3% of it is index
+# 254 -- one of the five that disagree -- so for that image the choice decides
+# almost every pixel, and nothing measured so far distinguishes the candidates.
+# It is a full-screen border overlay whose interior is that single flat index.
+DIR006_GREENKEY = {
+    "006/012": "006/001", "006/013": "006/001", "006/014": "006/001",
+    "006/015": "006/001", "006/016": "006/001", "006/017": "006/001",
+    "006/018": "006/001",
+    "006/03C": "006/03A",
+}
+
+# Directory 002's seven menu pieces have no adjacent palette and take one from
+# directory 006. Three independent lines agree: an offline analysis of the
+# archive, decoding 002/010 both ways (006/02C renders the tab-bar text legibly
+# over a clean chroma key, 002/009 gives an illegible bar over a maroon fill),
+# and the engine itself -- an execute breakpoint on the resource getter at
+# 0x80064D60 shows 006/02C being fetched while these screens are up, with no
+# directory 006 image requested alongside it.
+#
+# The positional rule pairs these with 002/009..00E, which is wrong. Those six
+# palettes sit before the images rather than after and serve nothing here.
+DIR002_EXTERNAL = {f"002/{n:03X}": "006/02C" for n in range(0x010, 0x017)}
+
 DIR006_PAIRING = {
     "006/01B": "006/01A",       # space backdrop, planet and moon
     "006/01D": "006/01C",       # single readout bar
@@ -269,10 +303,16 @@ def pair_palettes(images, palettes) -> dict[str, str | None]:
         if not imgs:
             continue
 
+        if d == "002":
+            for i in imgs:
+                if i in DIR002_EXTERNAL:
+                    out[i] = DIR002_EXTERNAL[i]
+            # everything else in 002 pairs adjacently; fall through
+
         if d == "006":
             # Measured, not derived -- see DIR006_PAIRING.
             for i in imgs:
-                out[i] = DIR006_PAIRING.get(i)
+                out[i] = DIR006_PAIRING.get(i) or DIR006_GREENKEY.get(i)
             continue
 
         ext = EXTERNAL_PALETTES.get(d)
