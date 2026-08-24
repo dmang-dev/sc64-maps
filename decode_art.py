@@ -160,18 +160,21 @@ def is_image(data: bytes) -> bool:
     number skipped, where rowbytes comes from a bytes-per-pixel table at
     0x800CF370 indexed by the depth halfword at +2.
 
-    The dormant part: [0x80111C40] is NULL throughout. A write watch across
-    the title, the main menu, the episode mission list and a campaign briefing
-    recorded zero writes to it, and eighteen samples spread over those screens
-    all read zero. So the `beq a1, zero` always takes the plain path and a
+    The dormant part: [0x80111C40] is NULL everywhere. A write watch recorded
+    zero writes to it across the title, the main menu, the episode mission
+    list, a campaign briefing AND a running mission -- the latter sampled
+    while idle, while scrolling the view in two directions, on C-up, Z and A,
+    and through opening, navigating and leaving the pause menu. Twenty-nine
+    samples over both sessions, every one of them zero. So the `beq a1, zero` always takes the plain path and a
     bit-0-set image draws exactly like a bit-0-clear one -- which is why
     flipping the bit on 009/00C changed neither the blitter nor a pixel.
 
     The bit itself is used, not vestigial: the gated block is entered some 750
     times in a single run, by the 640x480 backdrops and the directory 006
-    overlays that set it. It is the RECTANGLE that is never installed on any
-    screen reached so far. Something else in the engine presumably sets it --
-    a windowed or scrolled view would be the obvious candidate.
+    overlays that set it. It is the RECTANGLE that is never installed. The
+    likeliest reading is an engine feature this game does not use: Mass
+    Media's blitter supports clipping to a window, StarCraft 64 always draws
+    whole images, so the branch is compiled in and never taken.
 
     A WARNING FOR THE NEXT PERSON, because this cost a wrong conclusion that
     stood in this file for two commits. The obvious test of "does bit 1 make
