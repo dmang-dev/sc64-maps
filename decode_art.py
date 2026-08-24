@@ -93,9 +93,9 @@ def is_image(data: bytes) -> bool:
     with flag 2 and 26 with flag 3, which between them are all of directory
     006 and part of 002 and 009. The archive holds 281 images, not 240.
 
-    The flag is not arbitrary: it sorts the archive by HOW TRANSPARENCY IS
-    HANDLED. Measured across all 281 images, with each image's own paired
-    palette:
+    The flag is not arbitrary -- it sorts the archive into four classes that
+    line up with the KIND of image. Measured across all 281, each against its
+    own paired palette:
 
         flag 0   240 images, everywhere
                  the general case. Index 0 is alpha-transparent in 151 of
@@ -113,17 +113,26 @@ def is_image(data: bytes) -> bool:
                  paired palette's index 0 is OPAQUE BRIGHT GREEN (0,255,0) in
                  25 of the 26 -- a chroma key rather than an alpha channel.
 
-    So the three populated classes line up as: no transparency (1), chroma key
-    on index 0 (3), palette alpha (0). Every other field in the header is zero
-    in all 281 -- the depth is always 8, and the words at +4 and +12 never vary
-    -- so the flag is the only thing distinguishing them.
+    Every other field in the header is constant across all 281 -- the depth is
+    always 8, and the words at +4 and +12 never vary -- so the flag is the only
+    thing separating these classes.
 
-    That is a correlation over the whole archive, not a mechanism. The code
-    that reads the flag has not been found, and an attempt to test it by
-    flipping 009/00C between 0, 1 and 3 and watching the loading screen was
-    inconclusive: a melee map loads too quickly to capture that frame, and the
-    frames that were captured are not the ones the change would show up in.
-    Treat the reading above as well-supported and unproven. Flags 0, 1 and 3 account for 275 images and all
+    The obvious reading of that table is transparency handling: none for 1,
+    chroma key on index 0 for 3, palette alpha for 0. IT IS WRONG, or at least
+    it has no effect on drawing. Tested directly: 009/002 is a campaign loading
+    screen and 87% of its pixels are index 0, so keying that index out would
+    erase almost the whole picture. Rebuilt twice, identical but for the two
+    header bytes, flag 0 against flag 3, and shown on the same screen by poking
+    the episode byte at 0x800D1182 to 1 (the selector at 0x800228C4 computes
+    image = 0x900 + 2 * episode, so that is what chooses which of the eight
+    appears). Both arms matched the reference decode at 1.03 -- a real match,
+    where a miss scores about 32 -- and differed from each other by 0.00 of
+    255. Not one pixel.
+
+    So the flag does not change how a full-screen image is drawn. It remains a
+    reliable classifier of what KIND of asset an entry is, which is how
+    is_image uses it and all is_image needs, but what the loader does with it
+    is unknown. It may only matter on a path a loading screen never takes. Flags 0, 1 and 3 account for 275 images and all
     of them pair with a palette. Flag 2 accounts for exactly six -- 009/01C,
     009/01E, 009/01F, 009/020, 009/021 and 009/022 -- and those six are
     precisely the ones that resist pairing.
