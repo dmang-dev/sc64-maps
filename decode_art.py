@@ -204,13 +204,43 @@ def is_image(data: bytes) -> bool:
         0x80096C30   andi v0, t8, 0x0002    bit 1, gates code that uses the
         0x80096C58   andi v0, t8, 0x0002    halfword at +2 as a table index
         0x80096C90   andi v0, t8, 0x0002    (sll by 2, add base, lw)
-        0x80096C0C   andi a2, t8, 0x1100    bits 8 and 12
-        0x80096CA0   andi v0, t8, 0x1000    bit 12
+        0x80096C0C   andi a2, t8, 0x1100    bits 8 and 12, see below
+        0x80096CA0   andi v0, t8, 0x1000    bit 12, see below
 
     So "flag 3" is not a third kind of image -- it is bits 0 and 1 both set,
     which is exactly why its 26 entries look like a blend of the flag-1 and
-    flag-2 populations. Bits 8 and 12 are tested but no image in this cartridge
-    sets them.
+    flag-2 populations. Bits 8 and 12 are tested but no image in this cartridge sets them, and
+    what they are tested FOR is legible:
+
+    Bit 12 says the source is COMPRESSED, row-indexed. When set, the dispatch
+    at 0x80096CA0 requires the source depth at +2 to be exactly 8 and the
+    destination format code to be under 15, then calls 0x8009DABC or
+    0x8009D8FC instead of the plain blitters. 0x8009DABC shows the format:
+
+        lw   t4, 7344(t4)     a row number, from [0x80111CB0]
+        sll  t4, t4, 2        times four -- a table of 32-bit offsets
+        addu t6, a0, t4       base + row * 4
+        lwl  a0, 0(t6)        unaligned 32-bit load
+        lwr  a0, 3(t6)
+        addu a0, a0, t6       a0 = t6 + offset, so the offsets are RELATIVE
+        ...
+        lb   t2, 0(a0)        signed control byte: per-row RLE
+
+    One relative pointer per row, each to that row's own compressed data --
+    the layout you choose when you need to start at an arbitrary row, which
+    is exactly what clipping needs.
+
+    Bits 8 OR 12 veto the memcpy fast path. Just past 0x80096C0C, if no
+    offsets are pending and both descriptors share a pixel format, the whole
+    blit collapses to a single jal 0x80091300. `bne a2, zero` on the 0x1100
+    mask jumps over all of it. For bit 12 that is forced rather than chosen: a
+    compressed source cannot be memcpy'd. Bit 8 is never tested on its own
+    anywhere in the function, so all that can be said of it is that it marks
+    some other property incompatible with a straight copy.
+
+    There is also a deliberate hang in this path. At 0x80096CFC, reached when
+    the destination pointer is not in KSEG0, the code branches to itself
+    forever -- an assert, not a bug.
 
     Worth knowing before anyone reads the classes above as four separate
     things: they are two independent bits.
