@@ -93,9 +93,30 @@ def is_image(data: bytes) -> bool:
     with flag 2 and 26 with flag 3, which between them are all of directory
     006 and part of 002 and 009. The archive holds 281 images, not 240.
 
-    What the flag means is not established here. It is not the depth, and the
-    size check below still holds for every value of it, so decoding does not
-    depend on knowing.
+    The flag is not arbitrary: it sorts the archive into classes, and one of
+    them behaves differently. Flags 0, 1 and 3 account for 275 images and all
+    of them pair with a palette. Flag 2 accounts for exactly six -- 009/01C,
+    009/01E, 009/01F, 009/020, 009/021 and 009/022 -- and those six are
+    precisely the ones that resist pairing.
+
+    They resist it for a reason that looks structural rather than accidental.
+    Four are 88x81 and decode to a 3x3 grid of rounded panels; 009/01C is a
+    64x30 bar and 009/022 a 512x384 rectangular region map; all six use few
+    indices over large flat areas. Rendered against every one of the 142
+    palettes in the cartridge they produce a plausible-looking grid every
+    time, because a layout with no recognisable subject cannot be told right
+    from wrong by eye -- the method that settled directories 000, 002, 004,
+    006 and 007 has nothing to work with here.
+
+    Nor does the engine help. An execute breakpoint on the resource getter at
+    0x80064D60 catches other directory 009 entries -- it sees 009/00C followed
+    three frames later by 009/00D, and 009/011 during a melee game -- but
+    never these six, across the title, main menu, episode list, scenario tab,
+    Load Saved, two-player, campaign briefing, Encyclopedia and a running
+    game.
+
+    So "which palette" may simply be the wrong question for flag 2. These are
+    left unpaired rather than guessed at.
     """
     if len(data) <= IMAGE_HEADER:
         return False
