@@ -210,6 +210,17 @@ DIR006_GREENKEY = {
     "006/015": "006/001", "006/016": "006/001", "006/017": "006/001",
     "006/018": "006/001",
     "006/03C": "006/03A",
+    # 006/000 is here on the same reasoning, established later. 89.3% of it is
+    # index 254, which reads as a reason to worry until you look at what the
+    # six candidates put there: (0,0,0), (8,8,8) or (8,0,0). Near-black in all
+    # of them, a maximum difference of 8/255, so that 89% renders identically
+    # whichever is chosen. The chroma key is index 0 at (0,255,0), not 254.
+    # Five of the six also agree exactly on indices 1-4; only 006/02C differs.
+    # Matching the decode against a live Encyclopedia frame puts all six within
+    # 18.65..18.88 of it while 006/002 scores 85.9 and 006/01A 227.2, so the
+    # family is settled even though the member is not, and the member does not
+    # matter.
+    "006/000": "006/001",
 }
 
 # Directory 002's seven menu pieces have no adjacent palette and take one from
