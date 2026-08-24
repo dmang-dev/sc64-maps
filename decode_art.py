@@ -93,8 +93,37 @@ def is_image(data: bytes) -> bool:
     with flag 2 and 26 with flag 3, which between them are all of directory
     006 and part of 002 and 009. The archive holds 281 images, not 240.
 
-    The flag is not arbitrary: it sorts the archive into classes, and one of
-    them behaves differently. Flags 0, 1 and 3 account for 275 images and all
+    The flag is not arbitrary: it sorts the archive by HOW TRANSPARENCY IS
+    HANDLED. Measured across all 281 images, with each image's own paired
+    palette:
+
+        flag 0   240 images, everywhere
+                 the general case. Index 0 is alpha-transparent in 151 of
+                 them; median index-0 share 0.194.
+        flag 1     9 images, 002 and 006
+                 large opaque plates and nothing else -- five 640x480
+                 backdrops (006/000, 01B, 02A, 036, 038), 002/023 at 640x480,
+                 and the three 320x166 message screens (002/017, 019, 01B).
+                 Median index-0 share 0.002: they barely reference index 0,
+                 because nothing is meant to show through.
+        flag 2     6 images, all 009
+                 the grids and region maps. See below.
+        flag 3    26 images, all 006
+                 the UI overlay pieces. Median index-0 share 0.352, and the
+                 paired palette's index 0 is OPAQUE BRIGHT GREEN (0,255,0) in
+                 25 of the 26 -- a chroma key rather than an alpha channel.
+
+    So the three populated classes line up as: no transparency (1), chroma key
+    on index 0 (3), palette alpha (0). Every other field in the header is zero
+    in all 281 -- the depth is always 8, and the words at +4 and +12 never vary
+    -- so the flag is the only thing distinguishing them.
+
+    That is a correlation over the whole archive, not a mechanism. The code
+    that reads the flag has not been found, and an attempt to test it by
+    flipping 009/00C between 0, 1 and 3 and watching the loading screen was
+    inconclusive: a melee map loads too quickly to capture that frame, and the
+    frames that were captured are not the ones the change would show up in.
+    Treat the reading above as well-supported and unproven. Flags 0, 1 and 3 account for 275 images and all
     of them pair with a palette. Flag 2 accounts for exactly six -- 009/01C,
     009/01E, 009/01F, 009/020, 009/021 and 009/022 -- and those six are
     precisely the ones that resist pairing.
