@@ -129,10 +129,40 @@ def is_image(data: bytes) -> bool:
     where a miss scores about 32 -- and differed from each other by 0.00 of
     255. Not one pixel.
 
-    So the flag does not change how a full-screen image is drawn. It remains a
-    reliable classifier of what KIND of asset an entry is, which is how
-    is_image uses it and all is_image needs, but what the loader does with it
-    is unknown. It may only matter on a path a loading screen never takes. Flags 0, 1 and 3 account for 275 images and all
+    So the flag does not change how a full-screen image is drawn. The code
+    that reads it says why: it is a BITFIELD, not the four-valued enum the
+    table above makes it look like.
+
+    Found by watching reads of a decompressed image in RDRAM. 009/00C lands at
+    0x801C4460 -- the selector at 0x800228F8 leaves that pointer in v0 -- and
+    of the PCs that touch its header, most also read the pixels and are bulk
+    copies. Seven read the header and never the pixel data, and one of those
+    is the interpreter:
+
+        0x800969B0   lhu t8, 0(t7)          t8 = the halfword at +0
+
+    t7 is the image: the same function reads +8 and +10 off it, which are the
+    width and height. What follows tests individual bits, never the whole
+    value:
+
+        0x800969FC   andi v0, t8, 0x0001    bit 0, gates ~99 instructions
+                                            that walk a list at 0x80111C40
+        0x80096C30   andi v0, t8, 0x0002    bit 1, gates code that uses the
+        0x80096C58   andi v0, t8, 0x0002    halfword at +2 as a table index
+        0x80096C90   andi v0, t8, 0x0002    (sll by 2, add base, lw)
+        0x80096C0C   andi a2, t8, 0x1100    bits 8 and 12
+        0x80096CA0   andi v0, t8, 0x1000    bit 12
+
+    So "flag 3" is not a third kind of image -- it is bits 0 and 1 both set,
+    which is exactly why its 26 entries look like a blend of the flag-1 and
+    flag-2 populations. Bits 8 and 12 are tested but no image in this cartridge
+    sets them.
+
+    What the bits MEAN is still open. The function reads +0, +2, +4, +6, +8 and
+    +10 from two different pointers and compares them pairwise, which looks
+    like two instances of one descriptor being related to each other rather
+    than a single image being drawn. Worth knowing before anyone reads the
+    classes above as four separate things: they are two independent bits. Flags 0, 1 and 3 account for 275 images and all
     of them pair with a palette. Flag 2 accounts for exactly six -- 009/01C,
     009/01E, 009/01F, 009/020, 009/021 and 009/022 -- and those six are
     precisely the ones that resist pairing.
