@@ -158,11 +158,45 @@ def is_image(data: bytes) -> bool:
     flag-2 populations. Bits 8 and 12 are tested but no image in this cartridge
     sets them.
 
-    What the bits MEAN is still open. The function reads +0, +2, +4, +6, +8 and
-    +10 from two different pointers and compares them pairwise, which looks
-    like two instances of one descriptor being related to each other rather
-    than a single image being drawn. Worth knowing before anyone reads the
-    classes above as four separate things: they are two independent bits. Flags 0, 1 and 3 account for 275 images and all
+    Worth knowing before anyone reads the classes above as four separate
+    things: they are two independent bits.
+
+    The function holding that read is 0x80096948, 2904 bytes, and it is a
+    RASTER BLITTER. It reads a descriptor's bits at +0, a code at +2, signed
+    offsets at +4 and +6 and dimensions at +8 and +10; it reads the same six
+    fields from a SECOND descriptor and compares them pairwise, falling back
+    to a straight memcpy (0x80091300) when they agree; it range-checks a code
+    against 9 and 15; and it dispatches to eight specialised routines at
+    0x8009D790, D7DC, D82C, D88C, D8FC, D9FC, DABC and DCCC.
+
+    Its inner loop, at 0x80096DB8, decodes a RUN-LENGTH ENCODED stream that is
+    not the 8bpp format this tool reads:
+
+        lbu  t0, 0(s0)        next byte of the stream
+        andi v0, t0, 0x0080   high bit set means this byte starts a run
+        andi t0, t0, 0x007f   low seven bits are the palette index
+        lbu  a2, 0(s0)        the following byte is the run length,
+                              and a length of zero means "to the row width",
+                              which is taken from [t7 + 7408]
+        blez t0, +0x18        INDEX 0 IS SKIPPED -- transparent
+        lw   v0, 7216(s1)     lookup table base
+        sll  v1, t0, 1        index * 2, so 16-bit entries
+        lhu  a0, 0(v1)        LUT[index]
+        sh   a0, 0(a1)        write one 16-bit pixel
+        addiu a1, a1, 2       destination advances two bytes
+
+    So the engine's sprite path is RLE over 7-bit indices, expanding through a
+    16-bit LUT into a 16-bit framebuffer, with index 0 hardcoded as
+    transparent. That last detail is worth holding onto: transparency here is
+    a property of the BLITTER, not of the header flag. An earlier guess that
+    the flag selected between "no transparency", "chroma key" and "palette
+    alpha" was tested and produced no pixel difference at all, and this is
+    why -- the code never consults the flag to make that decision.
+
+    What the two bits actually select is still unestablished. Bit 0 gates a
+    list walk at 0x80111C40 and bit 1 gates a table lookup indexed by the
+    halfword at +2; both sit inside the descriptor-comparison logic rather
+    than the pixel loop. Flags 0, 1 and 3 account for 275 images and all
     of them pair with a palette. Flag 2 accounts for exactly six -- 009/01C,
     009/01E, 009/01F, 009/020, 009/021 and 009/022 -- and those six are
     precisely the ones that resist pairing.
