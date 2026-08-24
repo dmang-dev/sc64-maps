@@ -117,21 +117,40 @@ def is_image(data: bytes) -> bool:
     always 8, and the words at +4 and +12 never vary -- so the flag is the only
     thing separating these classes.
 
-    The obvious reading of that table is transparency handling: none for 1,
-    chroma key on index 0 for 3, palette alpha for 0. IT IS WRONG, or at least
-    it has no effect on drawing. Tested directly: 009/002 is a campaign loading
-    screen and 87% of its pixels are index 0, so keying that index out would
-    erase almost the whole picture. Rebuilt twice, identical but for the two
-    header bytes, flag 0 against flag 3, and shown on the same screen by poking
-    the episode byte at 0x800D1182 to 1 (the selector at 0x800228C4 computes
-    image = 0x900 + 2 * episode, so that is what chooses which of the eight
-    appears). Both arms matched the reference decode at 1.03 -- a real match,
-    where a miss scores about 32 -- and differed from each other by 0.00 of
-    255. Not one pixel.
+    It is a BITFIELD, not the four-valued enum that table makes it look like,
+    and BIT 1 IS TRANSPARENCY.
 
-    So the flag does not change how a full-screen image is drawn. The code
-    that reads it says why: it is a BITFIELD, not the four-valued enum the
-    table above makes it look like.
+    Proven twice over. In the code, 0x8009D88C is byte-for-byte identical to
+    the plain blitter 0x8009D82C except for a single instruction:
+
+        0x8009D8B0   beq t0, zero, +0x20      index 0 -> skip the write
+
+    At runtime, rebuilding 009/00C four times with only the two header bytes
+    changed and breakpointing all eight blitter variants:
+
+        flag 0 (no bits)     0x8009D82C  -- opaque
+        flag 1 (bit 0)       0x8009D82C  -- opaque
+        flag 2 (bit 1)       0x8009D88C  -- index 0 skipped
+        flag 3 (bits 0+1)    0x8009D88C  -- index 0 skipped
+
+    and in both arms the blitter is called with a0 = 0x801C4470, which is the
+    image's own first pixel, so it is this image being drawn and not something
+    else on screen.
+
+    Bit 0 does NOT select the variant -- flags 0 and 1 behave identically, as
+    do 2 and 3. It gates a list walk at 0x80111C40 inside the descriptor
+    logic, and what that is for is still unknown.
+
+    A WARNING FOR THE NEXT PERSON, because this cost a wrong conclusion that
+    stood in this file for two commits. The obvious test of "does bit 1 make
+    index 0 transparent" is to flip it on an image with a lot of index 0 and
+    look. That test cannot work here: index 0 is (0,0,0) in every one of the
+    eight loading-screen palettes, and the framebuffer under them is black, so
+    writing black and skipping to leave black are the same picture. Choosing
+    009/002 because 87% of it is index 0 felt like picking the strongest case
+    and was in fact picking a case with no discriminating power at all. What
+    matters is not how much index 0 an image has, but whether index 0's colour
+    differs from what is already in the destination.
 
     Found by watching reads of a decompressed image in RDRAM. 009/00C lands at
     0x801C4460 -- the selector at 0x800228F8 leaves that pointer in v0 -- and
@@ -231,9 +250,10 @@ def is_image(data: bytes) -> bool:
     Timestamps, not hit counts, told them apart.
 
     Note what this loop does NOT contain: any test of the index. Every pixel
-    is written. The RLE path at 0x80096DB8 skips index 0, so transparency is
-    a property of WHICH BLITTER RUNS, not of the header flag -- a third
-    independent reason the flag experiment moved no pixels. Flags 0, 1 and 3 account for 275 images and all
+    is written. Its sibling 0x8009D88C adds exactly one instruction, a skip
+    on index 0, and bit 1 of the header flag is what chooses between them --
+    so transparency is a property of which blitter runs AND the flag is what
+    picks the blitter. Flags 0, 1 and 3 account for 275 images and all
     of them pair with a palette. Flag 2 accounts for exactly six -- 009/01C,
     009/01E, 009/01F, 009/020, 009/021 and 009/022 -- and those six are
     precisely the ones that resist pairing.
