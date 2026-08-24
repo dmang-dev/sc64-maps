@@ -196,7 +196,44 @@ def is_image(data: bytes) -> bool:
     What the two bits actually select is still unestablished. Bit 0 gates a
     list walk at 0x80111C40 and bit 1 gates a table lookup indexed by the
     halfword at +2; both sit inside the descriptor-comparison logic rather
-    than the pixel loop. Flags 0, 1 and 3 account for 275 images and all
+    than the pixel loop.
+
+    THE 8BPP IMAGES THEMSELVES ARE DRAWN BY 0x8009D82C, one of the eight
+    routines that blitter dispatches to. Two nested loops, and nothing else:
+
+        lw   t1, 7216(t1)    lookup table base   [0x80111C30]
+        lw   t3, 7328(t3)    source row stride   [0x80111CA0]
+        lw   t4, 7248(t4)    dest row stride     [0x80111C50]
+      per row (a3 = height):
+        per pixel (a2 = width):
+            lbu  t0, 0(a0)   one 8-bit palette index
+            addu t2, t1, t0
+            addu t2, t2, t0  LUT + index*2, adding twice rather than shifting
+            lhu  t0, 0(t2)   the 16-bit colour
+            sh   t0, -2(a1)  write it
+            addiu a1, a1, 2  destination advances two bytes
+        addu a0, a0, t3      next source row
+        addu a1, a1, t4      next destination row
+
+    So an entry's bytes are palette indices, expanded through a 16-bit LUT
+    into a 16-bit framebuffer, with independent source and destination
+    strides. That is exactly what decode_image() reproduces, which is why it
+    works. 0x8009D88C opens with the same three loads, so the eight targets
+    are variants of one blitter.
+
+    Found by watching reads of a decompressed image in RDRAM and checking
+    WHEN each happened: 009/00C is fetched into 0x801C4460 at frame 1733, and
+    probes spread across the whole buffer -- +16, +4000, +20000, +40000,
+    +60000, +76000, +76815 -- are every one of them read at that moment, all
+    by this routine. An earlier reading of the same data was wrong: the two
+    busiest PCs read frames 1007..1103, six hundred frames before the image
+    existed, so they were touching whatever previously occupied that address.
+    Timestamps, not hit counts, told them apart.
+
+    Note what this loop does NOT contain: any test of the index. Every pixel
+    is written. The RLE path at 0x80096DB8 skips index 0, so transparency is
+    a property of WHICH BLITTER RUNS, not of the header flag -- a third
+    independent reason the flag experiment moved no pixels. Flags 0, 1 and 3 account for 275 images and all
     of them pair with a palette. Flag 2 accounts for exactly six -- 009/01C,
     009/01E, 009/01F, 009/020, 009/021 and 009/022 -- and those six are
     precisely the ones that resist pairing.
