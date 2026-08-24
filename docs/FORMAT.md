@@ -85,6 +85,39 @@ Decoding stops when the entry's declared uncompressed size is reached. Across
 all 2111 entries this lands exactly on the declared size every time, which is a
 strong signal the algorithm is fully correct.
 
+## 2.2 Map previews are offsets from the map, not a table
+
+The melee map selector fetches a preview when a map is chosen. The ids are
+computed from the map's own resource id, in overlay code at 0x8012400C:
+
+```
+addiu a0, s0, 36    ; preview image   = map_id + 36
+jal   0x80064d60
+addiu s0, s0, 72    ; preview palette = map_id + 72
+jal   0x80064d60
+```
+
+Resource ids are `(directory << 8) | file` and a map's id is `0x808 + index`,
+so index 60 gives s0 = 0x844, image 0x868 and palette 0x88C. Both were observed
+being fetched by an execute breakpoint on the resource getter at 0x80064D60.
+
+This is why searching for a "preview base constant" never found one: there is
+no base and no table, only +36 and +72 from whatever map is selected, in code
+that is not in the static image.
+
+It also fixes the melee range at 95. For index 96 the arithmetic asks for image
+0x88C -- which is preview *palette* 0 -- and palette 0x8B0, which does not exist
+at all, directory 008 ending at 0x0AF. A request for a missing resource is a
+good candidate for the NULL that the pool allocator at 0x80122B60 returns and
+0x80123980 dereferences without checking.
+
+The scheme is structurally capped at 36 maps: with previews at +36 and palettes
+at +72, map 96's image collides with map 60's palette however many entries the
+directory has. Extending the range means repointing those two immediates at a
+relocated, larger preview region -- and both are in overlay code, so they cannot
+be patched in the static image the way the Scenario table and the 1v1 list
+length can.
+
 ## 3. CHK scenarios
 
 A CHK is a flat chain of sections:
