@@ -137,9 +137,41 @@ def is_image(data: bytes) -> bool:
     image's own first pixel, so it is this image being drawn and not something
     else on screen.
 
-    Bit 0 does NOT select the variant -- flags 0 and 1 behave identically, as
-    do 2 and 3. It gates a list walk at 0x80111C40 inside the descriptor
-    logic, and what that is for is still unknown.
+    BIT 0 IS CLIPPING, and in this cartridge it is dormant.
+
+    It does not select the blitter -- flags 0 and 1 behave identically, as do
+    2 and 3. What it gates is a block at 0x80096A04 that intersects the blit
+    with a rectangle:
+
+        lw   a1, 7232(v0)     a1 = [0x80111C40], a rectangle pointer
+        beq  a1, zero, +0x4c  null -> skip to the plain path
+        lhu  v0, 0(a1)        x0, differenced against the image and
+        lhu  v1, 2(a1)        y0, sign-extended through sll/sra 16
+        lhu  a0, 4(a1)        width  -> s0
+        lhu  v0, 6(a1)        height -> t2
+        ...
+        blez v0, 0x80097470   nothing left -> abandon the blit entirely
+      plain path:
+        lh   s0, 8(t5)        width  straight from the descriptor
+        lh   t2, 10(t5)       height straight from the descriptor
+
+    Both branches end with a width in s0 and a height in t2. Rows clipped off
+    the top are skipped by advancing the source pointer by rowbytes times the
+    number skipped, where rowbytes comes from a bytes-per-pixel table at
+    0x800CF370 indexed by the depth halfword at +2.
+
+    The dormant part: [0x80111C40] is NULL throughout. A write watch across
+    the title, the main menu, the episode mission list and a campaign briefing
+    recorded zero writes to it, and eighteen samples spread over those screens
+    all read zero. So the `beq a1, zero` always takes the plain path and a
+    bit-0-set image draws exactly like a bit-0-clear one -- which is why
+    flipping the bit on 009/00C changed neither the blitter nor a pixel.
+
+    The bit itself is used, not vestigial: the gated block is entered some 750
+    times in a single run, by the 640x480 backdrops and the directory 006
+    overlays that set it. It is the RECTANGLE that is never installed on any
+    screen reached so far. Something else in the engine presumably sets it --
+    a windowed or scrolled view would be the obvious candidate.
 
     A WARNING FOR THE NEXT PERSON, because this cost a wrong conclusion that
     stood in this file for two commits. The obvious test of "does bit 1 make
