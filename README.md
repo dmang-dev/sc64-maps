@@ -301,6 +301,13 @@ the melee tables, rebranding the title screen, expanding the image to 64 MiB —
 lives in **[sc64-le](https://github.com/dmang-dev/sc64-le)**, which builds on
 this. This repository stays about reading a cartridge.
 
+Its latest release,
+**[v0.3.2](https://github.com/dmang-dev/sc64-le/releases/tag/v0.3.2)**, adds
+`exception_screen.py`: it draws StarCraft 64's own runtime error text — the
+*"the map could not be loaded because it had too many obstructions…"* message
+the retail game hides behind a silent "ACCESSING MISSION DATA…" hang — straight
+onto the screen, on the cycle-accurate Ares64 emulator and on real hardware.
+
 ## Credits
 
 - [Adam Heinermann](https://github.com/heinermann) — reverse-engineered the
